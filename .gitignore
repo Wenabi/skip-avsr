@@ -9,3 +9,6 @@
 /summaries/*
 /configs/*
 /alignments/*
+/datasets/Grid/*
+/datasets/lrs2/icmi2018/*
+/datasets/tcdtimit/*
