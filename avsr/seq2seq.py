@@ -16,6 +16,14 @@ class Seq2SeqModel(object):
         self._video_data = data_sequences[0]
         self._audio_data = data_sequences[1]
 
+        self.video_skip_infos = None
+        self.audio_skip_infos = None
+        self.decoder_skip_infos = None
+        self._budget_loss = None
+        self._loss_rate = None
+        self._reg_loss = None
+        self.batch_loss = None
+
         self._mode = mode
         self._hparams = hparams
 
@@ -31,6 +39,7 @@ class Seq2SeqModel(object):
         if self._video_data is not None:
             with tf.variable_scope('video'):
                 self._video_encoder = Seq2SeqEncoder(
+                    data_type='video',
                     data=self._video_data,
                     mode=self._mode,
                     hparams=self._hparams,
@@ -40,12 +49,13 @@ class Seq2SeqModel(object):
                 )
         else:
             self._video_encoder = None
-
+        self.video_skip_infos = self._video_encoder.skip_infos
         if self._audio_data is not None:
             with tf.variable_scope('audio'):
 
                 if self._hparams.architecture in ('unimodal', 'bimodal',):
                     self._audio_encoder = Seq2SeqEncoder(
+                        data_type='audio',
                         data=self._audio_data,
                         mode=self._mode,
                         hparams=self._hparams,
@@ -54,6 +64,7 @@ class Seq2SeqModel(object):
                     )
                 elif self._hparams.architecture == 'av_align':
                     self._audio_encoder = AttentiveEncoder(
+                        data_type='audio',
                         data=self._audio_data,
                         mode=self._mode,
                         hparams=self._hparams,
@@ -64,6 +75,7 @@ class Seq2SeqModel(object):
                     )
                 else:
                     raise Exception('Unknown architecture')
+                self.audio_skip_infos = self._audio_encoder.skip_infos
         else:
             self._audio_encoder = None
 
@@ -110,6 +122,7 @@ class Seq2SeqModel(object):
                 mode=self._mode,
                 hparams=self._hparams
             )
+            self.decoder_skip_infos = self._decoder.skip_infos
 
         elif self._hparams.architecture == 'bimodal':
             self._decoder = Seq2SeqBimodalDecoder(
@@ -170,10 +183,10 @@ class Seq2SeqModel(object):
             average_across_batch=True,
             average_across_timesteps=True)
 
-        reg_loss = 0
+        self._reg_loss = 0
 
         if self._hparams.recurrent_l2_regularisation is not None:
-            regularisable_vars = _get_trainable_vars(self._hparams.cell_type)
+            regularisable_vars = _get_trainable_vars(self._hparams.cell_type[0])
             reg = tf.contrib.layers.l2_regularizer(scale=self._hparams.recurrent_l2_regularisation)
             reg_loss = tf.contrib.layers.apply_regularization(reg, regularisable_vars)
 
@@ -183,7 +196,18 @@ class Seq2SeqModel(object):
                 reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
                 reg_loss += tf.reduce_sum(reg_variables)
 
-        self.batch_loss = self.batch_loss + reg_loss
+        self._budget_loss = tf.constant(0.0)
+        if self.audio_skip_infos is not None:
+            self._budget_loss += self.audio_skip_infos.budget_loss
+        if self.video_skip_infos is not None:
+            self._budget_loss += self.video_skip_infos.budget_loss
+        if self.decoder_skip_infos is not None:
+            self._budget_loss += self.decoder_skip_infos.budget_loss
+        
+        self.batch_loss = self.batch_loss + self._reg_loss
+
+        self.batch_loss = self.batch_loss + self._budget_loss
+        self._loss_rate = self._budget_loss / self.batch_loss
 
         if self._hparams.regress_aus is True:
             loss_weight = self._hparams.kwargs.get('au_loss_weight', 10.0)
@@ -267,12 +291,25 @@ class Seq2SeqModel(object):
             self.current_lr = tf.train.cosine_decay_restarts(
                 learning_rate=self._hparams.learning_rate,
                 global_step=tf.train.get_global_step(),
-                first_decay_steps=self._hparams.lr_decay[1])
+                first_decay_steps=self._hparams.lr_decay[1],
+                alpha=0.0001)
+        elif self._hparams.lr_decay[0] == 'linear':
+            self.current_lr = tf.train.polynomial_decay(
+                learning_rate=self._hparams.learning_rate,
+                global_step=tf.train.get_global_step(),
+                decay_steps=self._hparams.lr_decay[1])
+        elif self._hparams.lr_decay[0] == 'cosine':
+            self.current_lr = tf.train.cosine_decay(
+                learning_rate=self._hparams.learning_rate,
+                global_step=tf.train.get_global_step(),
+                decay_steps=self._hparams.lr_decay[1],
+                alpha=0.0001)
         else:
             print('learning rate policy not implemented, falling back to constant learning rate')
             self.current_lr = self._hparams.learning_rate
 
         steps = self._hparams.kwargs.get('warmup_steps', 750)
+        print('init_lr_decay_steps', steps)
         if steps:
             global_step = tf.to_float(tf.train.get_global_step())
             warmup_steps = tf.to_float(steps)
@@ -284,7 +321,13 @@ def _get_trainable_vars(cell_type):
     r"""
     Returns the list of trainable variables associated with the recurrent layers
     """
-    cell_type = cell_type.split('_')[0]
-    vars_ = [var for var in tf.trainable_variables() if cell_type + '_' in var.name
+    print(cell_type)
+    #cell_type = cell_type.split('_')[0]
+    print([var for var in tf.trainable_variables() if 'video' in var.name])
+    if cell_type == 'lstm':
+        cell = 'lstm_cell'
+    elif cell_type == 'skip_lstm':
+        cell = 'SkipLSTMCell'
+    vars_ = [var for var in tf.trainable_variables() if cell in var.name
              and 'bias' not in var.name]
     return vars_

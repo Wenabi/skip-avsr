@@ -51,6 +51,8 @@ class Seq2SeqBimodalDecoder(object):
         self._prepare_attention_memories()
         self._init_decoder()
 
+        self._attention_mechanisms = None
+
     def _infer_num_valid_streams(self):
         num_streams = 0
         if self._video_output is not None:
@@ -98,7 +100,7 @@ class Seq2SeqBimodalDecoder(object):
         with tf.variable_scope("Decoder"):
 
             self._decoder_cells = build_rnn_layers(
-                cell_type=self._hparams.cell_type,
+                cell_type=self._hparams.cell_type[2],
                 num_units_per_layer=self._hparams.decoder_units_per_layer,
                 use_dropout=self._hparams.use_dropout,
                 dropout_probability=self._hparams.decoder_dropout_probability,
@@ -236,11 +238,11 @@ class Seq2SeqBimodalDecoder(object):
         )
 
         if self._hparams.enable_attention is True:
-            attention_mechanisms, layer_sizes = self._create_attention_mechanisms()
+            self._attention_mechanisms, layer_sizes = self._create_attention_mechanisms()
 
             attention_cells = seq2seq.AttentionWrapper(
                 cell=self._decoder_cells,
-                attention_mechanism=attention_mechanisms,
+                attention_mechanism=self._attention_mechanisms,
                 attention_layer_size=layer_sizes,
                 initial_cell_state=self._decoder_initial_state,
                 alignment_history=False,

@@ -199,7 +199,8 @@ def make_iterator_from_two_records(video_record, audio_record, label_record, bat
             batch_size=batch_size,
             padded_shapes=(
                 (video_shape, audio_shape), labels_shape
-            )
+            ),
+            drop_remainder=True
         )
 
     if bucket_width == -1:
@@ -378,12 +379,12 @@ def make_iterator_from_text_dataset(text_dataset, batch_size, unit_dict, shuffle
         dataset = dataset.shuffle(buffer_size=1000000, reshuffle_each_iteration=True)
 
     def batching_fun(x):
-
+        print('batching_fun')
         labels_shape = (tf.TensorShape([None]), tf.TensorShape([]), )
-
+        
         return x.padded_batch(
             batch_size=batch_size,
-            padded_shapes=(labels_shape)
+            padded_shapes=(labels_shape),
         )
 
     if bucket_width == -1:

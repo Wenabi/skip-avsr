@@ -8,50 +8,56 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = "2"  # ERROR
 
 
 def main():
-
-    dataset_dir = '/run/media/john_tukey/download/datasets/tcdtimit/'
-    train_list = './datasets/tcdtimit/splits/speaker-dependent/train.scp'
-    test_list = './datasets/tcdtimit/splits/speaker-dependent/test.scp'
+    dataset_name = 'mvlrs_v1'
+    dataset_dir = f'F:/Documents/datasets/{dataset_name}/'
+    train_list = f'F:/Documents/datasets/{dataset_name}/splits/train.scp'
+    #trainTest_list = f'F:/Documents/datasets/{dataset_name}/splits/trainTest.scp'
+    #test_list = f'F:/Documents/datasets/{dataset_name}/splits/test.scp'
 
     train = get_files(train_list, dataset_dir)
-    test = get_files(test_list, dataset_dir)
+    #trainTest = get_files(trainTest_list, dataset_dir)
+    #test = get_files(test_list, dataset_dir)
 
     label_map = dict()
-    for file in train+test:
-        label_map[path.splitext(file)[0]] = path.splitext(file.split('tcdtimit/')[-1])[0]
+    for file in train:#+trainTest+test:
+        label_map[path.splitext(file)[0]] = path.splitext(file.split(f'{dataset_name}/')[-1])[0]
 
     writer = TFRecordWriter(
         train_files=train,
-        test_files=test,
+        #trainTest_files=trainTest,
+        #test_files=test,
         label_map=label_map,
         )
-
-    writer.write_labels_records(
-        unit='character',
-        unit_list_file='./avsr/misc/character_list',
-        label_file='./datasets/tcdtimit/configs/character_labels',
-        train_record_name='/run/media/john_tukey/download/datasets/tcdtimit/tfrecords/characters_train_sd.tfrecord',
-        test_record_name='/run/media/john_tukey/download/datasets/tcdtimit/tfrecords/characters_test_sd.tfrecord',
-    )
-
+    #print('Writing labels records')
+    #writer.write_labels_records(
+    #    unit='character',
+    #    unit_list_file=f'F:/Documents/datasets/{dataset_name}/misc/character_list',
+    #    label_file=f'F:/Documents/datasets/{dataset_name}/configs/character_labels',
+    #    train_record_name=f'N:/datasets/{dataset_name}/tfrecords/characters_train.tfrecord',
+    #    #trainTest_record_name=f'N:/datasets/{dataset_name}/tfrecords/characters_trainTest.tfrecord',
+    #    #test_record_name=f'N:/datasets/{dataset_name}/tfrecords/characters_test.tfrecord',
+    #)
+    print('Writing audio records')
     writer.write_audio_records(
         content_type='feature',
-        extension='wav',
+        extension='mp4',
         transform='logmel_stack_w8s3',
-        snr_list=['clean', 10, 0, -5],
+        snr_list=[10, 0, -5], # ['clean', 10, 0, -5]
         target_sr=16000,
-        noise_type='cafe',
-        train_record_name='/run/media/john_tukey/download/datasets/tcdtimit/tfrecords/logmel_train_sd',
-        test_record_name='/run/media/john_tukey/download/datasets/tcdtimit/tfrecords/logmel_test_sd',
+        noise_type='street', #cafe, street
+        train_record_name=f'N:/datasets/{dataset_name}/tfrecords/logmel_train',
+        #trainTest_record_name=f'N:/datasets/{dataset_name}/tfrecords/logmel_trainTest',
+        #test_record_name=f'N:/datasets/{dataset_name}/tfrecords/logmel_test',
     )
-
-    writer.write_bmp_records(
-        train_record_name='/run/media/john_tukey/download/datasets/tcdtimit/tfrecords/rgb36lips_train_sd.tfrecord',
-        test_record_name='/run/media/john_tukey/download/datasets/tcdtimit/tfrecords/rgb36lips_test_sd.tfrecord',
-        bmp_dir='/run/media/john_tukey/download/datasets/tcdtimit/aligned_openface/',
-        output_resolution=(36, 36),
-        crop_lips=True,
-    )
+    #print('Writing bmp records')
+    #writer.write_bmp_records(
+    #    train_record_name=f'N:/datasets/{dataset_name}/tfrecords/rgb36lips_train.tfrecord',
+    #    #trainTest_record_name=f'N:/datasets/{dataset_name}/tfrecords/rgb36lips_trainTest.tfrecord',
+    #    #test_record_name=f'N:/datasets/{dataset_name}/tfrecords/rgb36lips_test.tfrecord',
+    #    bmp_dir=f'N:/datasets/{dataset_name}/aligned_openface/',
+    #    output_resolution=(36, 36),
+    #    crop_lips=True,
+    #)
 
 
 if __name__ == '__main__':

@@ -5,10 +5,15 @@ from .video import cnn_layers
 from .audio import process_audio
 from .seq2seq import Seq2SeqModel
 import time
+import pandas
+import numpy as np
+import pickle as p
+import matplotlib.pyplot as plt
 from os import makedirs, path, system
-from .utils import compute_wer, write_sequences_to_labelfile
+from .utils import compute_wer, write_sequences_to_labelfile, compute_measures
 from .visualise.beam_search import create_html, copy_headers
 from .visualise.visvis import write_frames, write_json
+from pprint import pprint
 
 from .io_utils import BatchedData
 
@@ -23,11 +28,14 @@ class AVSR(object):
                  unit_file=None,
                  video_processing=None,
                  video_train_record=None,
+                 video_trainTest_record=None,
                  video_test_record=None,
                  audio_processing=None,
                  audio_train_record=None,
+                 audio_trainTest_record=None,
                  audio_test_record=None,
                  labels_train_record=None,
+                 labels_trainTest_record=None,
                  labels_test_record=None,
                  batch_size=(64, 64),
                  cnn_filters=(8, 16, 32, 64),
@@ -71,6 +79,12 @@ class AVSR(object):
                  precision='float32',
                  profiling=False,
                  required_grahps=('train', 'eval'),
+                 cost_per_sample=0.0,
+                 experiment_name=None,
+                 dataset_name=None,
+                 max_label_length=500,
+                 separate_skip_rnn=False,
+                 write_summary=False,
                  **kwargs,
                  ):
         r"""
@@ -135,18 +149,23 @@ class AVSR(object):
 
         self._video_processing = video_processing
         self._video_train_record = video_train_record
+        self._video_trainTest_record = video_trainTest_record
         self._video_test_record = video_test_record
+        self._video_input_length = None
         self._audio_processing = audio_processing
         self._audio_train_record = audio_train_record
+        self._audio_trainTest_record = audio_trainTest_record
         self._audio_test_record = audio_test_record
+        self._audio_input_length = None
         self._labels_train_record = labels_train_record
+        self._labels_trainTest_record = labels_trainTest_record
         self._labels_test_record = labels_test_record
 
         self._write_attention_alignment = write_attention_alignment
         self._write_beam_search_graphs = write_beam_search_graphs
         self._write_estimated_modality_lags = write_estimated_modality_lags
         self._required_graphs = required_grahps
-
+        
         self._hparams = tf.contrib.training.HParams(
             unit_dict=self._unit_dict,
             unit_file=unit_file,
@@ -154,7 +173,7 @@ class AVSR(object):
             batch_size=batch_size,
             video_processing=video_processing,
             audio_processing=audio_processing,
-            max_label_length={'viseme': 65, 'phoneme': 70, 'character': 500}[unit],  # max lens from tcdtimit
+            max_label_length=max_label_length,  # max lens from tcdtimit, LRS3 150, LRS2 100
             max_sentence_length=max_sentence_length,
             batch_normalisation=batch_normalisation,
             instance_normalisation=instance_normalisation,
@@ -194,9 +213,14 @@ class AVSR(object):
             write_attention_alignment=write_attention_alignment,
             dtype=tf.float16 if precision == 'float16' else tf.float32,
             profiling=profiling,
+            cost_per_sample=cost_per_sample,
+            experiment_name=experiment_name,
+            dataset_name=dataset_name,
+            separate_skip_rnn=separate_skip_rnn,
+            write_summary=write_summary,
             kwargs=kwargs,
         )
-
+        
         self._hparams_audio = tf.contrib.training.HParams(
             frame_length_msec=25,  # 25 > 20
             frame_step_msec=10,
@@ -227,15 +251,22 @@ class AVSR(object):
     def train(self,
               logfile,
               num_epochs=400,
-              try_restore_latest_checkpoint=False
+              try_restore_latest_checkpoint=False,
               ):
 
-        checkpoint_dir = path.join('checkpoints', path.split(logfile)[-1])
+        checkpoint_dir = path.join('checkpoints/'+self._hparams.dataset_name, path.split(logfile)[-1]+'/')
         checkpoint_path = path.join(checkpoint_dir, 'checkpoint.ckp')
         makedirs(path.dirname(checkpoint_dir), exist_ok=True)
         makedirs(path.dirname(logfile), exist_ok=True)
-        self._initialize_summaries('summaries', logfile)
-
+        makedirs(path.dirname(logfile + '_info'), exist_ok=True)
+        makedirs(
+            path.dirname(f'./eval_data/{self._hparams.dataset_name}/{self._hparams.experiment_name}/'), exist_ok=True)
+        if self._hparams.write_summary:
+            self._initialize_summaries('summaries', logfile)
+        
+        self._video_input_length = p.load(open('./datasets/'+self._hparams.dataset_name+'/video_seq_len.p', 'rb'))
+        self._audio_input_length = p.load(open('./datasets/'+self._hparams.dataset_name+'/audio_seq_len.p', 'rb'))
+        
         last_epoch = 0
         if try_restore_latest_checkpoint is True:
             try:
@@ -248,273 +279,568 @@ class AVSR(object):
             except Exception:
                 print('Could not restore from checkpoint, training from scratch!\n')
 
-        f = open(logfile, 'a')
+        loss_diff_list = []
+        with open(logfile, 'r') as f:
+            log_batch_loss = []
+            log_validation_loss = []
+            for line in f.read().splitlines():
+                if 'batch_loss' in line:
+                    log_batch_loss.append(float(line.split(' ')[-1]))
+                elif 'validation_loss' in line:
+                    log_validation_loss.append(float(line.split(' ')[-1]))
+            for i in range(len(log_batch_loss)):
+                loss_diff = log_validation_loss[i] - log_batch_loss[i]
+                if loss_diff > 0.05:
+                    loss_diff_list.append(loss_diff)
+                if loss_diff < 0.05 and len(loss_diff_list) >= 1:
+                    loss_diff_list = []
+        print(f'Loss Diff List is {loss_diff_list}')
+        patience = 5 if num_epochs > 50 else 15
+        if len(loss_diff_list) < patience:
+            f = open(logfile, 'a')
+            num_epochs = last_epoch+num_epochs if num_epochs <100 else num_epochs
+            print(last_epoch+1, num_epochs)
+            for current_epoch in range(last_epoch+1, num_epochs):
+                epoch = current_epoch
+                print(f'Epoch: {epoch}')
+                self._train_session.run([stream.iterator_initializer for stream in self._train_model.data
+                                         if stream is not None])
+                sum_loss = 0
+                sum_gradient_norm = 0
+                batches = 0
+                batch_loss_list = []
+                loss_rate_list = []
+                budget_loss_list = []
+                if 'skip' in self._hparams.cell_type[0]:
+                    video_update_states_rate = []
+                    video_update_states = []
+                    video_state_numbers = []
+                if 'skip' in self._hparams.cell_type[1]:
+                    audio_update_states_rate = []
+                    audio_update_states = []
+                    audio_state_numbers = []
+                if 'skip' in self._hparams.cell_type[2]:
+                    decoder_update_states_rate = []
+                    decoder_update_states = []
+                    decoder_state_numbers = []
+                
+                start = time.time()
+    
+                try:
+                    while True:
+                        #session_outputs = [self._train_model.model.train_op,
+                        #                   self._train_model.model.batch_loss,
+                        #                   self._train_model.model.global_norm,
+                        #                   tf.contrib.summary.all_summary_ops(),
+                        #                   self._merged_train_summaries,
+                        #                   self._train_model.model.global_step,
+                        #                   self._train_model.model._loss_rate,
+                        #                   self._train_model.model._budget_loss,
+                        #                   self._train_model.model.current_lr,
+                        #                   self._train_model.data[0].inputs_filenames]
+                        
+                        #out = self._train_session.run(session_outputs, **self.sess_opts)
+                        
+                        session_outputs = {
+                            'train_op':self._train_model.model.train_op,
+                            'batch_loss':self._train_model.model.batch_loss,
+                            'global_norm':self._train_model.model.global_norm,
+                            'all_summary_ops':tf.contrib.summary.all_summary_ops(),
+                            'global_step':self._train_model.model.global_step,
+                            'loss_rate':self._train_model.model._loss_rate,
+                            'budget_loss':self._train_model.model._budget_loss,
+                            'inputs_filenames':self._train_model.data[0].inputs_filenames
+                        }
 
-        for current_epoch in range(1, num_epochs):
-            epoch = last_epoch + current_epoch
-
-            self._train_session.run([stream.iterator_initializer for stream in self._train_model.data
-                                     if stream is not None])
-            sum_loss = 0
-            batches = 0
-
-            start = time.time()
-
-            try:
-                while True:
-                    out = self._train_session.run([self._train_model.model.train_op,
-                                                   self._train_model.model.batch_loss,
-                                                   self._train_model.model.global_norm,
-                                                   # self._train_model.model._video_data,
-                                                   tf.contrib.summary.all_summary_ops(),
-                                                   self._merged_train_summaries,
-                                                   self._train_model.model.global_step,
-                                                   ], **self.sess_opts)
-
-                    if self._hparams.profiling is True:
-                        self.profiler.add_step(batches, self.run_meta)
-
-                        from tensorflow.python.profiler import option_builder
-
-                        self.profiler.profile_name_scope(options=(option_builder.ProfileOptionBuilder
-                                                                  .trainable_variables_parameter()))
-
-                        opts = option_builder.ProfileOptionBuilder.time_and_memory()
-                        self.profiler.profile_operations(options=opts)
-
-                        opts = (option_builder.ProfileOptionBuilder(
-                            option_builder.ProfileOptionBuilder.time_and_memory())
-                                .with_step(batches)
-                                .with_timeline_output('/tmp/timelines/').build())
-
-                        self.profiler.profile_graph(options=opts)
-
-                    self._train_summary_writer.add_summary(out[4], out[5])
-
-                    batch_loss = out[1]
-                    sum_loss += batch_loss
-                    global_norm = out[2]
-                    print('batch: {}, batch loss: {:.2f}, gradient norm: {:.2f}'.format(batches, batch_loss, global_norm))
-                    batches += 1
-
-            except tf.errors.OutOfRangeError:
-                pass
-
-            print('epoch time: {}'.format(time.time() - start))
-            f.write('Average batch_loss as epoch {} is {}\n'.format(epoch, sum_loss / batches))
-            f.flush()
-
-            if epoch % 5 == 0:
+                        if 'skip' in self._hparams.cell_type[0]:
+                           session_outputs['video_updated_states'] = self._train_model.model.video_skip_infos.updated_states
+                        if 'skip' in self._hparams.cell_type[1]:
+                           session_outputs['audio_updated_states'] = self._train_model.model.audio_skip_infos.updated_states
+                        if 'skip' in self._hparams.cell_type[2]:
+                           session_outputs['decoder_meanUpdates'] = self._train_model.model.decoder_skip_infos.meanUpdates
+                           session_outputs['decoder_updated_states'] = self._train_model.model.decoder_skip_infos.updated_states
+                        if self._hparams.write_summary:
+                            session_outputs['merged_train_summaries'] = self._merged_train_summaries
+                        
+                        out_list = self._train_session.run(list(session_outputs.values()))
+                        outputs = dict(zip(session_outputs.keys(), out_list))
+                        
+                        batch_loss_list.append(outputs['batch_loss'])
+                        loss_rate_list.append(outputs['loss_rate'])
+                        budget_loss_list.append(outputs['budget_loss'])
+                        s = 10
+                        if 'skip' in self._hparams.cell_type[0]:
+                            us = outputs['video_updated_states']
+                            v_us = []
+                            v_us_rate = []
+                            v_us_number = []
+                            for i in range(len(us)):
+                                filename = outputs['inputs_filenames'][i].decode('utf-8')
+                                n_us = np.sum(us[i][:self._video_input_length[filename]])
+                                v_us.append(n_us)
+                                v_us_rate.append(n_us / self._video_input_length[filename])
+                                v_us_number.append(self._video_input_length[filename])
+                            video_update_states_rate.append(np.mean(v_us_rate))
+                            video_update_states.append(np.mean(v_us))
+                            video_state_numbers.append(np.mean(v_us_number))
+                            s += 1
+                        if 'skip' in self._hparams.cell_type[1]:
+                            us = outputs['audio_updated_states']
+                            a_us = []
+                            a_us_rate = []
+                            a_us_number = []
+                            for i in range(len(us)):
+                                filename = outputs['inputs_filenames'][i].decode('utf-8')
+                                n_us = np.sum(us[i][:self._audio_input_length[filename]])
+                                a_us.append(n_us)
+                                a_us_rate.append(n_us / self._audio_input_length[filename])
+                                a_us_number.append(self._audio_input_length[filename])
+                            audio_update_states_rate.append(np.mean(a_us_rate))
+                            audio_update_states.append(np.mean(a_us))
+                            audio_state_numbers.append(np.mean(a_us_number))
+                            s += 1
+                        if 'skip' in self._hparams.cell_type[2]:
+                            decoder_update_states_rate.append(outputs['decoder_meanUpdates'][0] / outputs['decoder_updated_states'].shape[1], )
+                            decoder_update_states.append(outputs['decoder_meanUpdates'][0])
+                            decoder_state_numbers.append(outputs['decoder_updated_states'].shape[1])
+                            s += 1
+                            
+                        if self._hparams.profiling is True:
+                            self.profiler.add_step(batches, self.run_meta)
+    
+                            from tensorflow.python.profiler import option_builder
+    
+                            self.profiler.profile_name_scope(options=(option_builder.ProfileOptionBuilder
+                                                                      .trainable_variables_parameter()))
+    
+                            opts = option_builder.ProfileOptionBuilder.time_and_memory()
+                            self.profiler.profile_operations(options=opts)
+    
+                            opts = (option_builder.ProfileOptionBuilder(
+                                option_builder.ProfileOptionBuilder.time_and_memory())
+                                    .with_step(batches)
+                                    .with_timeline_output('/tmp/timelines/').build())
+    
+                            self.profiler.profile_graph(options=opts)
+                        
+                        if self._hparams.write_summary:
+                            self._train_summary_writer.add_summary(outputs['merged_train_summaries'], outputs['global_step'])
+                        
+                        batch_loss = outputs['batch_loss'][0] if type(outputs['batch_loss']) == np.ndarray else outputs['batch_loss']
+                        sum_loss += batch_loss
+                        sum_gradient_norm += outputs['global_norm'][0] if type(outputs['global_norm']) == np.ndarray else outputs['global_norm']
+                        global_norm = outputs['global_norm']
+                        print('batch: {}, batch loss: {:.2f}, gradient norm: {:.2f}'.format(batches, batch_loss, global_norm))
+                        batches += 1
+    
+                except tf.errors.OutOfRangeError:
+                    pass
+    
+                print('epoch time: {}'.format(time.time() - start))
+                o = 'Average batch_loss as epoch {} is {}'.format(epoch, sum_loss / batches)
+                print(o)
+                f.write(o+'\n')
+                o = 'Average gradient_norm as epoch {} is {}'.format(epoch, sum_gradient_norm / batches)
+                print(o)
+                f.write(o + '\n')
+    
+                output_info = 'Batch_Loss:{} Budget_Loss:{} Loss_Rate:{}'.format(
+                    np.mean(batch_loss_list), np.mean(budget_loss_list), np.mean(loss_rate_list))
+                print(output_info)
+                if 'skip' in self._hparams.cell_type[0]:
+                    oi = 'Video_Updated_States_Rate:{} Video_Updated_States:{} Video_Number_Of_States:{}'.format(
+                        np.mean(video_update_states_rate), np.mean(video_update_states), np.mean(video_state_numbers))
+                    print(oi)
+                    output_info += ' ' + oi
+                if 'skip' in self._hparams.cell_type[1]:
+                    oi = 'Audio_Updated_States_Rate:{} Audio_Updated_States:{} Audio_Number_Of_States:{}'.format(
+                        np.mean(audio_update_states_rate), np.mean(audio_update_states), np.mean(audio_state_numbers))
+                    print(oi)
+                    output_info += ' ' + oi
+                f.write(output_info+'\n')
+                f.flush()
+    
                 save_path = self._train_model.model.saver.save(
                     sess=self._train_session,
                     save_path=checkpoint_path,
                     global_step=epoch,
                 )
-
-                error_rate = self.evaluate(save_path, epoch)
-                for (k, v) in error_rate.items():
-                    f.write(k + ': {:.4f}% '.format(v * 100))
-                f.write('\n')
+                validation_loss = self.calc_validation_loss(save_path)
+                print(f'Validation_Loss is: {validation_loss}')
+                o = 'Average validation_loss as epoch {} is {}'.format(epoch, validation_loss)
+                print(o)
+                f.write(o + '\n')
                 f.flush()
-
-        f.close()
+                
+                if epoch % 1 == 0:
+                    #if epoch % 5 == 0:
+                    #    modes = ['evaluateAllData', 'evaluateTrain', 'evaluateAudio', 'evaluateVideo', 'evaluateNoData']
+                    #else:
+                    modes = ['evaluateAllData', 'evaluateTrain']
+                    error_rates = self.evaluate(save_path, modes, epoch)
+                    error_rate = error_rates['evaluateAllData']
+                    error_rate_train = error_rates['evaluateTrain']
+                    #if epoch % 5 == 0:
+                    #    error_rate_Audio = error_rates['evaluateAudio']
+                    #    error_rate_Video = error_rates['evaluateVideo']
+                    #    error_rate_NoData = error_rates['evaluateNoData']
+                    #    evaluate_names = ['error_rate', 'error_rate_train', 'error_rate_Audio', 'error_rate_Video', 'error_rate_NoData']
+                    #    data = np.array([list(e.values()) for e in
+                    #                     [error_rate, error_rate_train, error_rate_Audio,
+                    #                      error_rate_Video, error_rate_NoData]])
+                    #else:
+                    evaluate_names = ['error_rate', 'error_rate_train']
+                    data = np.array([list(e.values()) for e in
+                                     [error_rate, error_rate_train]])
+                    print(pandas.DataFrame(data, evaluate_names, error_rate.keys()))
+    
+                    for (k, v) in error_rate.items():
+                        f.write(k + ': {:.4f}% '.format(v * 100))
+                    f.write('\n')
+                    for (k, v) in error_rate_train.items():
+                        f.write("train_" + k + ': {:.4f}% '.format(v * 100))
+                    f.write('\n')
+                    #if epoch % 5 == 0:
+                    #    for (k, v) in error_rate_Audio.items():
+                    #        f.write("A_" + k + ': {:.4f}% '.format(v * 100))
+                    #    f.write('\n')
+                    #    for (k, v) in error_rate_Video.items():
+                    #        f.write("V_" + k + ': {:.4f}% '.format(v * 100))
+                    #    f.write('\n')
+                    #    for (k, v) in error_rate_NoData.items():
+                    #        f.write("nD_" + k + ': {:.4f}% '.format(v * 100))
+                    #    f.write('\n')
+                    f.flush()
+                #Early Stopping
+                loss_diff = validation_loss - (sum_loss / batches)
+                print(f'Loss Difference is {loss_diff}.')
+                if loss_diff > 0.05:
+                    loss_diff_list.append(loss_diff)
+                if loss_diff < 0.05 and len(loss_diff_list) >= 1:
+                    loss_diff_list = []
+                if len(loss_diff_list) == patience:
+                    print(f'Stopped training early. Using model of epoch {current_epoch}.')
+                    f.write(f'Stopped training early. Using model of epoch {current_epoch}.\n')
+                    f.flush()
+                    if num_epochs < 100:
+                        modes = ['evaluateAllData', 'evaluateTrain']
+                        error_rates = self.evaluate(save_path, modes, epoch)
+                        error_rate = error_rates['evaluateAllData']
+                        error_rate_train = error_rates['evaluateTrain']
+                        evaluate_names = ['error_rate', 'error_rate_train']
+                        data = np.array([list(e.values()) for e in
+                                         [error_rate, error_rate_train]])
+                        print(pandas.DataFrame(data, evaluate_names, error_rate.keys()))
+    
+                        for (k, v) in error_rate.items():
+                            f.write(k + ': {:.4f}% '.format(v * 100))
+                        f.write('\n')
+                        for (k, v) in error_rate_train.items():
+                            f.write("train_" + k + ': {:.4f}% '.format(v * 100))
+                        f.write('\n')
+                        f.flush()
+                    break
+                print(f'Loss Diff List is {loss_diff_list}')
+            f.close()
 
     def evaluate(self,
                  checkpoint_path,
+                 modes,
                  epoch=None,
                  alignments_outdir='./alignments/tmp/',
                  beam_graphs_outdir='./beam_graphs/tmp/',
                  ):
-        self._evaluate_model.model.saver.restore(
-            sess=self._evaluate_session,
+        error_rates = {}
+        
+        for mode in modes:#'evaluateAudio', 'evaluateVideo', 'evaluateNoData'
+            print(mode)
+            error_rates[mode] = None
+            if mode == 'evaluateAllData':
+                evaluate_data = {}
+            sess = None
+            evaluate_model = None
+            if mode == 'evaluateAllData':
+                sess = self._evaluate_session
+                evaluate_model = self._evaluate_model
+            elif mode == 'evaluateAudio':
+                sess = self._evaluateAudio_session
+                evaluate_model = self._evaluateAudio_model
+            elif mode == 'evaluateVideo':
+                sess = self._evaluateVideo_session
+                evaluate_model = self._evaluateVideo_model
+            elif mode == 'evaluateNoData':
+                sess = self._evaluateNoData_session
+                evaluate_model = self._evaluateNoData_model
+            elif mode == 'evaluateTrain':
+                sess = self._evaluateTrain_session
+                evaluate_model = self._evaluateTrain_model
+            evaluate_model.model.saver.restore(
+                sess=sess,
+                save_path=checkpoint_path
+            )
+            
+            sess.run([stream.iterator_initializer for stream in evaluate_model.data
+                      if stream is not None])
+            predictions_dict = {}
+            labels_dict = {}
+            
+            if self._hparams.video_processing is not None:
+                data = evaluate_model.data[0]
+            elif self._hparams.audio_processing is not None:
+                data = evaluate_model.data[1]
+            else:
+                raise ValueError('At least one of A/V streams must be enabled')
+            
+            session_dict = {
+                'predicted_ids': evaluate_model.model._decoder.inference_predicted_ids,
+                'labels': data.labels,
+                'input_filenames': data.inputs_filenames,
+                'labels_filenames': data.labels_filenames,
+                # 'encoder_outputs': self._evaluate_model.model._audio_encoder._encoder_outputs,
+                # 'weights': self._evaluate_model.model._audio_encoder._encoder_cells.weights,
+            }
+            
+            if mode == 'evaluateAllData':
+                if 'skip' in self._hparams.cell_type[0]:
+                    session_dict['video_updated_states'] = evaluate_model.model.video_skip_infos.updated_states
+                if 'skip' in self._hparams.cell_type[1]:
+                    session_dict['audio_updated_states'] = evaluate_model.model.audio_skip_infos.updated_states
+                if 'skip' in self._hparams.cell_type[2]:
+                    session_dict['decoder_updated_states'] = evaluate_model.model.decoder_skip_infos.updated_states
+            
+                if self._write_attention_alignment is True:
+                    session_dict['decoder_attention_summary'] = evaluate_model.model._decoder.attention_summary
+                    #for the bimodal architecture, attention_summary will return a list of two image summaries (A and V)
+                    session_dict['decoder_attention_alignment'] = evaluate_model.model._decoder.attention_alignment
+                    if self._write_estimated_modality_lags is True:
+                        session_dict['video_input'] = evaluate_model.data[0].inputs
+        
+                    if self._hparams.architecture == 'av_align':
+                        session_dict['encoder_attention_summary'] = evaluate_model.model._audio_encoder.attention_summary
+                        if self._write_estimated_modality_lags:
+                            pass
+                        session_dict['encoder_attention_alignment'] = evaluate_model.model._audio_encoder.attention_alignment
+        
+                if self._write_beam_search_graphs is True:
+                    session_dict['beam_search_output'] = evaluate_model.model._decoder.beam_search_output
+                    copy_headers(out_dir=beam_graphs_outdir)
+
+            eval_counter = 0
+            while True:
+                if eval_counter % 10 == 0:
+                    print(mode, eval_counter)
+                try:
+                    #
+                    out_list = sess.run(list(session_dict.values()))
+                    outputs = dict(zip(session_dict.keys(), out_list))
+                    # debug time
+                    # assert (any(list(out[2] == out[3])))
+                    # assert (any(list(out[1] == out[3])))
+                    
+                    if mode == 'evaluateAllData':
+                        if self._write_attention_alignment is True:
+    
+                            if self._hparams.architecture == 'unimodal':
+                                dec_enc_summ = tf.Summary()
+                                dec_enc_summ.ParseFromString(outputs['decoder_attention_summary'])
+        
+                            elif self._hparams.architecture == 'bimodal':
+                                video_summary = tf.Summary()
+                                video_summary.ParseFromString(outputs['decoder_attention_summary'][0])
+        
+                                audio_summary = tf.Summary()
+                                audio_summary.ParseFromString(outputs['decoder_attention_summary'][1])
+        
+                            elif self._hparams.architecture == 'av_align':
+                                dec_enc_summ = tf.Summary()
+                                dec_enc_summ.ParseFromString(outputs['decoder_attention_summary'])
+        
+                                cross_modal_summary = tf.Summary()
+                                cross_modal_summary.ParseFromString(outputs['encoder_attention_summary'])
+                            else:
+                                raise ValueError('Unknown architecture')
+                    
+                    for idx in range(len(outputs['input_filenames'])):  # could use batch_size here, but take care with the last smaller batch
+                        predicted_ids = outputs['predicted_ids'][idx]
+                        predicted_symbs = [self._unit_dict[sym] for sym in predicted_ids]
+    
+                        labels_ids = outputs['labels'][idx]
+                        labels_symbs = [self._unit_dict[sym] for sym in labels_ids]
+    
+                        file = outputs['input_filenames'][idx].decode('utf-8')
+    
+                        if self._write_attention_alignment is True and mode == 'evaluateAllData':
+    
+                            if self._hparams.architecture == 'unimodal':
+                                fname = path.join(alignments_outdir, file + '.png')
+                                makedirs(path.dirname(fname), exist_ok=True)
+                                with tf.gfile.GFile(fname, mode='w') as img_f:
+                                    img_f.write(dec_enc_summ.value[idx].image.encoded_image_string)
+    
+                            elif self._hparams.architecture == 'bimodal':
+                                fname = path.join(alignments_outdir, file + '_video.png')
+                                makedirs(path.dirname(fname), exist_ok=True)
+                                with tf.gfile.GFile(fname, mode='w') as img_f:
+                                    img_f.write(video_summary.value[idx].image.encoded_image_string)
+    
+                                fname = path.join(alignments_outdir, file + '_audio.png')
+                                with tf.gfile.GFile(fname, mode='w') as img_f:
+                                    img_f.write(audio_summary.value[idx].image.encoded_image_string)
+    
+                            elif self._hparams.architecture == 'av_align':
+                                fname = path.join(alignments_outdir, file + '.png')
+                                makedirs(path.dirname(fname), exist_ok=True)
+                                with tf.gfile.GFile(fname, mode='w') as img_f:
+                                    img_f.write(dec_enc_summ.value[idx].image.encoded_image_string)
+    
+                                fname = path.join(alignments_outdir, file + '_av.png')
+                                with tf.gfile.GFile(fname, mode='w') as img_f:
+                                    img_f.write(cross_modal_summary.value[idx].image.encoded_image_string)
+                                
+                                evaluate_data[file] = {'encoder_attention_summary':outputs['encoder_attention_summary'][idx],
+                                                        'encoder_attention_alignment':outputs['encoder_attention_alignment'][idx],
+                                                       'decoder_attention_summary':outputs['decoder_attention_summary'][idx],
+                                                       'decoder_attention_alignment':outputs['decoder_attention_alignment'][idx]}
+                                
+                                if 'skip' in self._hparams.cell_type[0]:
+                                    evaluate_data[file]['video_updated_states'] = outputs['video_updated_states'][idx][:self._video_input_length[file]]
+                                if 'skip' in self._hparams.cell_type[1]:
+                                    evaluate_data[file]['audio_updated_states'] = outputs['audio_updated_states'][idx][:self._audio_input_length[file]]
+                                if 'skip' in self._hparams.cell_type[2]:
+                                    evaluate_data[file]['decoder_updated_states'] = outputs['decoder_updated_states'][idx]
+                                
+                                if self._write_estimated_modality_lags is True:
+                                    import json
+                                    av_sentence = outputs['encoder_attention_alignment'][idx][:, :, 0]
+                                    at_sentence = outputs['decoder_attention_alignment'][idx][:, :, 0]
+    
+                                    from .visualise.modality_lags import write_fig, write_txt, write_praat_intensity,\
+                                        get_at_timestamps, get_av_timestamps
+                                    audio_stamps, tau = get_av_timestamps(av_sentence)
+                                    fname = path.join(alignments_outdir, file + '_lags.png')
+                                    write_fig(audio_stamps=audio_stamps, tau=tau, title=file, fname=fname)
+                                    write_txt(audio_stamps=audio_stamps, tau=tau, fname=fname.replace('.png', '.txt'))
+                                    write_praat_intensity(audio_stamps, tau, fname=fname.replace('.png', '.praat'))
+    
+                                    frames = outputs['video_input'][idx]
+                                    png_dir = path.join(alignments_outdir, file + '_pngs')
+                                    png_paths = write_frames(png_dir, frames)
+                                    fname = path.join(alignments_outdir, file + '.meta.json')
+    
+                                    dataset_dir = '/run/media/john_tukey/download/datasets/lrs2/mvlrs_v1/main/'
+                                    wav_name = path.join(alignments_outdir, file + '.wav')
+                                    mp4_name = path.join(dataset_dir, file + '.mp4')
+                                    spectrogram_name = path.join(alignments_outdir, file + '_spec.png')
+                                    system('ffmpeg -i {} {}'.format(mp4_name, wav_name))
+                                    system('sox {} -n rate 12k spectrogram -z 80 -r -m -l -y 65 -w Hann -o {}'.format(wav_name, spectrogram_name))
+    
+                                    write_json(
+                                        av_sentence=av_sentence,
+                                        at_sentence=at_sentence,
+                                        labels=predicted_symbs,
+                                        png_paths=png_paths,
+                                        spectrogram=spectrogram_name,
+                                        json_file=fname)
+                            else:
+                                raise ValueError('Unknown architecture')
+    
+                        if self._write_beam_search_graphs is True:
+                            from .visualise.beam_search import create_html
+    
+                            predicted_ids_beams = outputs['beam_search_output'].predicted_ids[idx]
+                            parent_ids_beams = outputs['beam_search_output'].parent_ids[idx]
+                            scores_beams = outputs['beam_search_output'].scores[idx]
+    
+                            create_html(
+                                predicted_ids=predicted_ids_beams,
+                                parent_ids=parent_ids_beams,
+                                scores=scores_beams,
+                                labels_ids=labels_ids,
+                                vocab=self._unit_dict,
+                                filename=file,
+                                output_dir=beam_graphs_outdir)
+    
+                        predictions_dict[file] = predicted_symbs
+                        labels_dict[file] = labels_symbs
+    
+                except tf.errors.OutOfRangeError:
+                    break
+                eval_counter += 1
+
+            recall, precision, fmeasure = compute_measures(predictions_dict, labels_dict)
+            uer, uer_dict = compute_wer(predictions_dict, labels_dict)
+            error_rate = {'c_error_rate': uer, "c_recall":recall, "c_precision":precision, "c_fmeasure":fmeasure}
+            if self._unit == 'character':
+                w_recall, w_precision, w_fmeasure = compute_measures(predictions_dict, labels_dict, split_words=True)
+                wer, wer_dict = compute_wer(predictions_dict, labels_dict, split_words=True)
+                error_rate['w_error_rate'] = wer
+                error_rate['w_recall'] = w_recall
+                error_rate['w_precision'] = w_precision
+                error_rate['w_fmeasure'] = w_fmeasure
+
+            outdir = path.join('predictions/' + self._hparams.dataset_name,
+                               path.split(path.split(checkpoint_path)[0])[-1] + "/" + mode + "/")
+            makedirs(outdir, exist_ok=True)
+            info = mode.replace("evaluate", "")
+            write_sequences_to_labelfile(predictions_dict,
+                                         path.join(outdir, 'predicted_' + info + '_epoch_{}.mlf'.format(epoch)),
+                                         labels_dict,
+                                         uer_dict)
+            # from .analyse.analyse import plot_err_vs_seq_len, compute_uer_confusion_matrix
+            # plot_err_vs_seq_len(labels_dict, uer_dict, 'tmp.pdf')
+            # mat = compute_uer_confusion_matrix(predictions_dict=predictions_dict, labels_dict=labels_dict, unit_dict=self._unit_dict)
+            error_rates[mode] = error_rate
+            if mode == 'evaluateAllData' and self._write_attention_alignment:
+                p.dump(evaluate_data, open(f'./eval_data/{self._hparams.dataset_name}/{self._hparams.experiment_name}/eval_data_e{epoch}.p', 'wb'))
+        return error_rates
+
+    def calc_validation_loss(self, checkpoint_path):
+
+        self._valLoss_model.model.saver.restore(
+            sess=self._valLoss_session,
             save_path=checkpoint_path
         )
-        self._evaluate_session.run([stream.iterator_initializer for stream in self._evaluate_model.data
-                                    if stream is not None])
-        predictions_dict = {}
-        labels_dict = {}
+        self._valLoss_session.run([stream.iterator_initializer for stream in self._valLoss_model.data
+                  if stream is not None])
+        validation_losses = []
 
         if self._hparams.video_processing is not None:
-            data = self._evaluate_model.data[0]
+            data = self._valLoss_model.data[0]
         elif self._hparams.audio_processing is not None:
-            data = self._evaluate_model.data[1]
+            data = self._valLoss_model.data[1]
         else:
             raise ValueError('At least one of A/V streams must be enabled')
 
         session_dict = {
-            'predicted_ids': self._evaluate_model.model._decoder.inference_predicted_ids,
-            'labels': data.labels,
             'input_filenames': data.inputs_filenames,
-            'labels_filenames': data.labels_filenames,
-            # 'encoder_outputs': self._evaluate_model.model._audio_encoder._encoder_outputs,
-            # 'weights': self._evaluate_model.model._audio_encoder._encoder_cells.weights,
+            'validation_loss': self._valLoss_model.model.batch_loss
         }
 
-        if self._write_attention_alignment is True:
-            session_dict['decoder_attention_summary'] = self._evaluate_model.model._decoder.attention_summary
-            #for the bimodal architecture, attention_summary will return a list of two image summaries (A and V)
-            if self._write_estimated_modality_lags is True:
-                session_dict['decoder_attention_alignment'] = self._evaluate_model.model._decoder.attention_alignment
-                session_dict['video_input'] = self._evaluate_model.data[0].inputs
-
-            if self._hparams.architecture == 'av_align':
-                session_dict['encoder_attention_summary'] = self._evaluate_model.model._audio_encoder.attention_summary
-                if self._write_estimated_modality_lags:
-                    session_dict['encoder_attention_alignment'] = self._evaluate_model.model._audio_encoder.attention_alignment
-
-        if self._write_beam_search_graphs is True:
-            session_dict['beam_search_output'] = self._evaluate_model.model._decoder.beam_search_output
-            copy_headers(out_dir=beam_graphs_outdir)
-
+        eval_counter = 0
         while True:
+            if eval_counter % 10 == 0:
+                print(eval_counter)
             try:
-                #
-                out_list = self._evaluate_session.run(list(session_dict.values()))
+                out_list = self._valLoss_session.run(list(session_dict.values()))
                 outputs = dict(zip(session_dict.keys(), out_list))
-                # debug time
-                # assert (any(list(out[2] == out[3])))
-                # assert (any(list(out[1] == out[3])))
-
-                if self._write_attention_alignment is True:
-
-                    if self._hparams.architecture == 'unimodal':
-                        dec_enc_summ = tf.Summary()
-                        dec_enc_summ.ParseFromString(outputs['decoder_attention_summary'])
-
-                    elif self._hparams.architecture == 'bimodal':
-                        video_summary = tf.Summary()
-                        video_summary.ParseFromString(outputs['decoder_attention_summary'][0])
-
-                        audio_summary = tf.Summary()
-                        audio_summary.ParseFromString(outputs['decoder_attention_summary'][1])
-
-                    elif self._hparams.architecture == 'av_align':
-                        dec_enc_summ = tf.Summary()
-                        dec_enc_summ.ParseFromString(outputs['decoder_attention_summary'])
-
-                        cross_modal_summary = tf.Summary()
-                        cross_modal_summary.ParseFromString(outputs['encoder_attention_summary'])
-                    else:
-                        raise ValueError('Unknown architecture')
-
-                for idx in range(len(outputs['input_filenames'])):  # could use batch_size here, but take care with the last smaller batch
-                    predicted_ids = outputs['predicted_ids'][idx]
-                    predicted_symbs = [self._unit_dict[sym] for sym in predicted_ids]
-
-                    labels_ids = outputs['labels'][idx]
-                    labels_symbs = [self._unit_dict[sym] for sym in labels_ids]
-
-                    file = outputs['input_filenames'][idx].decode('utf-8')
-
-                    if self._write_attention_alignment is True:
-
-                        if self._hparams.architecture == 'unimodal':
-                            fname = path.join(alignments_outdir, file + '.png')
-                            makedirs(path.dirname(fname), exist_ok=True)
-                            with tf.gfile.GFile(fname, mode='w') as img_f:
-                                img_f.write(dec_enc_summ.value[idx].image.encoded_image_string)
-
-                        elif self._hparams.architecture == 'bimodal':
-                            fname = path.join(alignments_outdir, file + '_video.png')
-                            makedirs(path.dirname(fname), exist_ok=True)
-                            with tf.gfile.GFile(fname, mode='w') as img_f:
-                                img_f.write(video_summary.value[idx].image.encoded_image_string)
-
-                            fname = path.join(alignments_outdir, file + '_audio.png')
-                            with tf.gfile.GFile(fname, mode='w') as img_f:
-                                img_f.write(audio_summary.value[idx].image.encoded_image_string)
-
-                        elif self._hparams.architecture == 'av_align':
-
-                            fname = path.join(alignments_outdir, file + '.png')
-                            makedirs(path.dirname(fname), exist_ok=True)
-                            with tf.gfile.GFile(fname, mode='w') as img_f:
-                                img_f.write(dec_enc_summ.value[idx].image.encoded_image_string)
-
-                            fname = path.join(alignments_outdir, file + '_av.png')
-                            with tf.gfile.GFile(fname, mode='w') as img_f:
-                                img_f.write(cross_modal_summary.value[idx].image.encoded_image_string)
-
-                            if self._write_estimated_modality_lags is True:
-                                import json
-                                av_sentence = outputs['encoder_attention_alignment'][idx][:, :, 0]
-                                at_sentence = outputs['decoder_attention_alignment'][idx][:, :, 0]
-
-                                from .visualise.modality_lags import write_fig, write_txt, write_praat_intensity,\
-                                    get_at_timestamps, get_av_timestamps
-                                audio_stamps, tau = get_av_timestamps(av_sentence)
-                                fname = path.join(alignments_outdir, file + '_lags.png')
-                                write_fig(audio_stamps=audio_stamps, tau=tau, title=file, fname=fname)
-                                write_txt(audio_stamps=audio_stamps, tau=tau, fname=fname.replace('.png', '.txt'))
-                                write_praat_intensity(audio_stamps, tau, fname=fname.replace('.png', '.praat'))
-
-                                frames = outputs['video_input'][idx]
-                                png_dir = path.join(alignments_outdir, file + '_pngs')
-                                png_paths = write_frames(png_dir, frames)
-                                fname = path.join(alignments_outdir, file + '.meta.json')
-
-                                dataset_dir = '/run/media/john_tukey/download/datasets/lrs2/mvlrs_v1/main/'
-                                wav_name = path.join(alignments_outdir, file + '.wav')
-                                mp4_name = path.join(dataset_dir, file + '.mp4')
-                                spectrogram_name = path.join(alignments_outdir, file + '_spec.png')
-                                system('ffmpeg -i {} {}'.format(mp4_name, wav_name))
-                                system('sox {} -n rate 12k spectrogram -z 80 -r -m -l -y 65 -w Hann -o {}'.format(wav_name, spectrogram_name))
-
-                                write_json(
-                                    av_sentence=av_sentence,
-                                    at_sentence=at_sentence,
-                                    labels=predicted_symbs,
-                                    png_paths=png_paths,
-                                    spectrogram=spectrogram_name,
-                                    json_file=fname)
-                        else:
-                            raise ValueError('Unknown architecture')
-
-                    if self._write_beam_search_graphs is True:
-                        from .visualise.beam_search import create_html
-
-                        predicted_ids_beams = outputs['beam_search_output'].predicted_ids[idx]
-                        parent_ids_beams = outputs['beam_search_output'].parent_ids[idx]
-                        scores_beams = outputs['beam_search_output'].scores[idx]
-
-                        create_html(
-                            predicted_ids=predicted_ids_beams,
-                            parent_ids=parent_ids_beams,
-                            scores=scores_beams,
-                            labels_ids=labels_ids,
-                            vocab=self._unit_dict,
-                            filename=file,
-                            output_dir=beam_graphs_outdir)
-
-                    predictions_dict[file] = predicted_symbs
-                    labels_dict[file] = labels_symbs
-
+                validation_loss = outputs['validation_loss'][0] if type(outputs['validation_loss']) == list else outputs['validation_loss']
+                validation_losses.append(validation_loss)
             except tf.errors.OutOfRangeError:
                 break
+            eval_counter += 1
 
-        uer, uer_dict = compute_wer(predictions_dict, labels_dict)
-        error_rate = {self._unit: uer}
-        if self._unit == 'character':
-            wer, wer_dict = compute_wer(predictions_dict, labels_dict, split_words=True)
-            error_rate['word'] = wer
-
-        outdir = path.join('predictions', path.split(path.split(checkpoint_path)[0])[-1])
-        makedirs(outdir, exist_ok=True)
-        write_sequences_to_labelfile(predictions_dict,
-                                     path.join(outdir, 'predicted_epoch_{}.mlf'.format(epoch)),
-                                     labels_dict,
-                                     uer_dict)
-        # from .analyse.analyse import plot_err_vs_seq_len, compute_uer_confusion_matrix
-        # plot_err_vs_seq_len(labels_dict, uer_dict, 'tmp.pdf')
-        # mat = compute_uer_confusion_matrix(predictions_dict=predictions_dict, labels_dict=labels_dict, unit_dict=self._unit_dict)
-
-        return error_rate
-
+        return np.mean(validation_losses)
+    
     def _create_graphs(self):
         if 'train' in self._required_graphs:
             self._train_graph = tf.Graph()
+            self._valLoss_graph = tf.Graph()
         if 'eval' in self._required_graphs:
             self._evaluate_graph = tf.Graph()
+            self._evaluateTrain_graph = tf.Graph()
+            self._evaluateAudio_graph = tf.Graph()
+            self._evaluateVideo_graph = tf.Graph()
+            self._evaluateNoData_graph = tf.Graph()
         # self._predict_graph = tf.Graph()
 
     def _create_models(self):
@@ -523,19 +849,45 @@ class AVSR(object):
                 graph=self._train_graph,
                 mode='train',
                 batch_size=self._hparams.batch_size[0])
+            self._valLoss_model = self._make_model(
+                graph=self._valLoss_graph,
+                mode='valLoss',
+                batch_size=self._hparams.batch_size[0])
 
         if 'eval' in self._required_graphs:
             self._evaluate_model = self._make_model(
                 graph=self._evaluate_graph,
                 mode='evaluate',
                 batch_size=self._hparams.batch_size[1])
+            self._evaluateTrain_model = self._make_model(
+                graph=self._evaluateTrain_graph,
+                mode='evaluateTrain',
+                batch_size=self._hparams.batch_size[1])
+            self._evaluateAudio_model = self._make_model(
+                graph=self._evaluateAudio_graph,
+                mode='evaluateAudio',
+                batch_size=self._hparams.batch_size[1])
+            self._evaluateVideo_model = self._make_model(
+                graph=self._evaluateVideo_graph,
+                mode='evaluateVideo',
+                batch_size=self._hparams.batch_size[1])
+            self._evaluateNoData_model = self._make_model(
+                graph=self._evaluateNoData_graph,
+                mode='evaluateNoData',
+                batch_size=self._hparams.batch_size[1])
 
     def _create_sessions(self):
         config = tf.ConfigProto(allow_soft_placement=True)
+        #config.gpu_options.allow_growth=True
         if 'train' in self._required_graphs:
             self._train_session = tf.Session(graph=self._train_graph, config=config)
+            self._valLoss_session = tf.Session(graph=self._valLoss_graph, config=config)
         if 'eval' in self._required_graphs:
             self._evaluate_session = tf.Session(graph=self._evaluate_graph, config=config)
+            self._evaluateTrain_session = tf.Session(graph=self._evaluateTrain_graph, config=config)
+            self._evaluateAudio_session = tf.Session(graph=self._evaluateAudio_graph, config=config)
+            self._evaluateVideo_session = tf.Session(graph=self._evaluateVideo_graph, config=config)
+            self._evaluateNoData_session = tf.Session(graph=self._evaluateNoData_graph, config=config)
         # self._predict_session = tf.Session(graph=self._predict_graph, config=config)
 
         if self._hparams.profiling is True:
@@ -553,15 +905,27 @@ class AVSR(object):
     def _initialize_sessions(self):
         if 'train' in self._required_graphs:
             self._train_session.run(self._train_model.initializer)
+            self._valLoss_session.run(self._valLoss_model.initializer)
         if 'eval' in self._required_graphs:
             self._evaluate_session.run(self._evaluate_model.initializer)
+            self._evaluateTrain_session.run(self._evaluateTrain_model.initializer)
+            self._evaluateAudio_session.run(self._evaluateAudio_model.initializer)
+            self._evaluateVideo_session.run(self._evaluateVideo_model.initializer)
+            self._evaluateNoData_session.run(self._evaluateNoData_model.initializer)
 
     def _make_model(self, graph, mode, batch_size):
         with graph.as_default():
-
+            print('make_model', mode, batch_size)
             video_data, audio_data = self._fetch_data(mode, batch_size)
+            
             video_features, audio_features = self._preprocess_data(video_data, audio_data, mode, batch_size)
 
+            #if mode == 'evaluateVideo' or mode == 'evaluateNoData':
+            #    audio_features = audio_features._replace(inputs=tf.zeros(shape=tf.shape(audio_features.inputs), dtype=self._hparams.dtype))
+            #if mode == 'evaluateAudio' or mode == 'evaluateNoData':
+            #    video_features = video_features._replace(inputs=tf.zeros(shape=tf.shape(video_features.inputs), dtype=self._hparams.dtype))
+            if mode == 'valLoss':
+                mode = 'train'
             model = Seq2SeqModel(
                 data_sequences=(video_features, audio_features),
                 mode=mode,
@@ -632,11 +996,13 @@ class AVSR(object):
         audio_data = None
 
         if self._video_processing is not None and self._audio_processing is not None:
-
             iterator = make_iterator_from_two_records(
-                video_record=self._video_train_record if mode == 'train' else self._video_test_record,
-                audio_record=self._audio_train_record if mode == 'train' else self._audio_test_record,
-                label_record=self._labels_train_record if mode == 'train' else self._labels_test_record,
+                video_record=self._video_train_record if mode == 'train' else (
+                    self._video_trainTest_record if mode == 'evaluateTrain' else self._video_test_record),
+                audio_record=self._audio_train_record if mode == 'train' else (
+                    self._audio_trainTest_record if mode == 'evaluateTrain' else self._audio_test_record),
+                label_record=self._labels_train_record if mode == 'train' else (
+                    self._labels_trainTest_record if mode == 'evaluateTrain' else self._labels_test_record),
                 batch_size=batch_size,
                 unit_dict=self._hparams.unit_dict,
                 shuffle=True if mode == 'train' else False,
@@ -672,7 +1038,17 @@ class AVSR(object):
                 )
 
                 audio_data = self._parse_iterator(audio_iterator)
-
+        print('fetch_data_mode', mode)
+        print('fetch_data_video_data', video_data)
+        print('fetch_data_audio_data', audio_data)
+        if mode == 'evaluateVideo' or mode == 'evaluateNoData':
+            #audio_data = audio_data._replace(inputs=tf.zeros_like(audio_data.inputs))
+            audio_data = audio_data._replace(inputs=tf.zeros(shape=tf.shape(audio_data.inputs), dtype=self._hparams.dtype))
+        if mode == 'evaluateAudio' or mode == 'evaluateNoData':
+            #video_data = video_data._replace(inputs=tf.zeros_like(video_data.inputs))
+            video_data = video_data._replace(inputs=tf.zeros(shape=tf.shape(video_data.inputs), dtype=self._hparams.dtype))
+        print('fetch_data_video_data', video_data)
+        print('fetch_data_audio_data', audio_data)
         return video_data, audio_data
 
     def _preprocess_data(self, video_data, audio_data, mode, batch_size):

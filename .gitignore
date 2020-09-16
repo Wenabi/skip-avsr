@@ -5,3 +5,7 @@
 /.idea/*
 /pyVSR/*
 **/*.pyc
+/eval_data/*
+/summaries/*
+/configs/*
+/alignments/*

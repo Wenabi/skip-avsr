@@ -5,7 +5,13 @@ from tensorflow.contrib.rnn import MultiRNNCell
 from .attention import add_attention
 
 from tensorflow.python.layers.core import Dense
+from tensorflow.contrib import seq2seq
+from avsr.skip_rnn_cells import SkipLSTMStateTuple, SkipLSTMCell
+from avsr.own_cells import SkipAttentionWrapper, SkipMultiRNNCell
+from avsr.graph_definition import create_model
+from tensorflow.contrib.rnn import LSTMStateTuple
 
+SkipInfoTuple = collections.namedtuple("SkipInfoTuple", ("updated_states", "meanUpdates", "budget_loss"))
 
 class EncoderData(collections.namedtuple("EncoderData", ("outputs", "final_state"))):
     pass
@@ -19,6 +25,7 @@ class Seq2SeqEncoder(object):
                  hparams,
                  num_units_per_layer,
                  dropout_probability,
+                 data_type,
                  **kwargs
                  ):
 
@@ -27,6 +34,8 @@ class Seq2SeqEncoder(object):
         self._hparams = hparams
         self._num_units_per_layer = num_units_per_layer
         self._dropout_probability = dropout_probability
+        self._data_type = data_type
+        self.skip_infos = None
 
         self._init_data()
         self._init_encoder()
@@ -65,32 +74,87 @@ class Seq2SeqEncoder(object):
             # encoder_inputs = a_resnet(encoder_inputs, self._mode == 'train')
 
             if self._hparams.encoder_type == 'unidirectional':
-                self._encoder_cells = build_rnn_layers(
-                    cell_type=self._hparams.cell_type,
+                cell_type = self._hparams.cell_type[0 if self._data_type == 'video' else 1]
+                batch_size = self._hparams.batch_size[0 if self._mode == 'train' else 1]
+                self._encoder_cells, initial_state = build_rnn_layers(
+                    cell_type=cell_type,
                     num_units_per_layer=self._num_units_per_layer,
                     use_dropout=self._hparams.use_dropout,
                     dropout_probability=self._dropout_probability,
                     mode=self._mode,
                     residual_connections=self._hparams.residual_encoder,
                     highway_connections=self._hparams.highway_encoder,
+                    batch_size=batch_size,
                     dtype=self._hparams.dtype,
                     weight_sharing=self._hparams.encoder_weight_sharing,
                 )
 
-                self._encoder_outputs, self._encoder_final_state = tf.nn.dynamic_rnn(
-                    cell=self._encoder_cells,
-                    inputs=encoder_inputs,
-                    sequence_length=self._inputs_len,
-                    parallel_iterations=self._hparams.batch_size[0 if self._mode == 'train' else 1],
-                    swap_memory=False,
-                    dtype=self._hparams.dtype,
-                    scope=scope,
+                #self._encoder_cells, initial_states = create_model(model=cell_type,
+                #                                                   num_cells=self._num_units_per_layer,
+                #                                                   batch_size=batch_size,
+                #                                                   as_list=True,
+                #                                                   learn_initial_state=True if 'skip' in cell_type else False,
+                #                                                   use_dropout=self._hparams.use_dropout,
+                #                                                   dropout_probability=self._dropout_probability)
+                
+                print("Seq2Seq_encoder_cells", self._encoder_cells)
+                print("Seq2Seq_encoder_encoder_inputs", encoder_inputs)
+                #if "skip" in cell_type:
+                #    if isinstance(self._encoder_cells, list):
+                #        initial_state = self._encoder_cells[0].trainable_initial_state(batch_size)
+                #    else:
+                #        initial_state = self._encoder_cells.trainable_initial_state(batch_size)
+                #        self._encoder_cells = [self._encoder_cells]
+                #    print('Seq2Seq_initial_state', initial_state)
+                #    print('Seq2Seq_scope', scope)
+                #    out = tf.nn.dynamic_rnn(
+                #        cell=MultiRNNCell(self._encoder_cells),
+                #        inputs=encoder_inputs,
+                #        sequence_length=self._inputs_len,
+                #        parallel_iterations=self._hparams.batch_size[0 if self._mode == 'train' else 1],
+                #        swap_memory=False,
+                #        dtype=self._hparams.dtype,
+                #        scope=scope,
+                #        initial_state=(initial_state,),
+                #    )
+                #else:
+                if cell_type == 'skip_lstm':
+                    out = tf.nn.dynamic_rnn(
+                        cell=MultiRNNCell([self._encoder_cells]),
+                        inputs=encoder_inputs,
+                        sequence_length=self._inputs_len,
+                        parallel_iterations=self._hparams.batch_size[0 if self._mode == 'train' else 1],
+                        swap_memory=False,
+                        dtype=self._hparams.dtype,
+                        initial_state=initial_state,
+                        scope=scope,
                     )
+                else:
+                    out = tf.nn.dynamic_rnn(
+                        cell=MultiRNNCell([self._encoder_cells]),
+                        inputs=encoder_inputs,
+                        sequence_length=self._inputs_len,
+                        parallel_iterations=self._hparams.batch_size[0 if self._mode == 'train' else 1],
+                        swap_memory=False,
+                        dtype=self._hparams.dtype,
+                        initial_state=tuple(initial_state),
+                        scope=scope,
+                    )
+
+                print("Seq2SeqEncoder_dynamic_rnn_out", out)
+                self._encoder_outputs, self._encoder_final_state = out
+                if "skip" in cell_type:
+                    self._encoder_outputs, updated_states = self._encoder_outputs
+                    print("Seq2SeqEncoder_updated_states", updated_states)
+                    cost_per_sample = self._hparams.cost_per_sample
+                    budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states, 1), 0)
+                    meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states, 1), 0)
+                    self.skip_infos = SkipInfoTuple(updated_states, meanUpdates, budget_loss)
 
             elif self._hparams.encoder_type == 'bidirectional':
 
                 self._fw_cells = build_rnn_layers(
-                    cell_type=self._hparams.cell_type,
+                    cell_type=self._hparams.cell_type[0 if self._data_type == 'video' else 1],
                     num_units_per_layer=self._num_units_per_layer,
                     use_dropout=self._hparams.use_dropout,
                     dropout_probability=self._dropout_probability,
@@ -99,7 +163,7 @@ class Seq2SeqEncoder(object):
                 )
 
                 self._bw_cells = build_rnn_layers(
-                    cell_type=self._hparams.cell_type,
+                    cell_type=self._hparams.cell_type[0 if self._data_type == 'video' else 1],
                     num_units_per_layer=self._num_units_per_layer,
                     use_dropout=self._hparams.use_dropout,
                     dropout_probability=self._dropout_probability,
@@ -124,12 +188,12 @@ class Seq2SeqEncoder(object):
                 for layer in range(len(bi_state[0])):
                     fw_state = bi_state[0][layer]
                     bw_state = bi_state[1][layer]
-
-                    if self._hparams.cell_type == 'gru':
+                    cell_type = self._hparams.cell_type[0 if self._data_type == 'video' else 1]
+                    if cell_type == 'gru':
                         cat = tf.concat([fw_state, bw_state], axis=-1)
                         proj = tf.layers.dense(cat, units=self._hparams.decoder_units_per_layer[0], use_bias=False)
                         encoder_state.append(proj)
-                    elif self._hparams.cell_type == 'lstm':
+                    elif cell_type == 'lstm':
                         cat_c = tf.concat([fw_state.c, bw_state.c], axis=-1)
                         cat_h = tf.concat([fw_state.h, bw_state.h], axis=-1)
                         proj_c = tf.layers.dense(cat_c, units=self._hparams.decoder_units_per_layer[0], use_bias=False)
@@ -205,38 +269,55 @@ class AttentiveEncoder(Seq2SeqEncoder):
                  num_units_per_layer,
                  attended_memory,
                  attended_memory_length,
-                 dropout_probability):
+                 dropout_probability,
+                 data_type):
         r"""
         Implements https://arxiv.org/abs/1809.01728
         """
 
         self._attended_memory = attended_memory
         self._attended_memory_length = attended_memory_length
+        self._data_type = data_type
+        self._skip_infos = None
 
         super(AttentiveEncoder, self).__init__(
             data,
             mode,
             hparams,
             num_units_per_layer,
-            dropout_probability
+            dropout_probability,
+            data_type
         )
 
     def _init_encoder(self):
         with tf.variable_scope("Encoder") as scope:
 
             encoder_inputs = self._maybe_add_dense_layers()
-
+            cell_type = self._hparams.cell_type[0 if self._data_type == 'video' else 1]
+            batch_size = self._hparams.batch_size[0 if self._mode == 'train' else 1]
             if self._hparams.encoder_type == 'unidirectional':
-                self._encoder_cells = build_rnn_layers(
-                    cell_type=self._hparams.cell_type,
+                self._encoder_cells, initial_state = build_rnn_layers(
+                    cell_type=cell_type,
                     num_units_per_layer=self._num_units_per_layer,
                     use_dropout=self._hparams.use_dropout,
                     dropout_probability=self._dropout_probability,
                     mode=self._mode,
                     as_list=True,
+                    batch_size=batch_size,
                     dtype=self._hparams.dtype)
 
+                #self._encoder_cells, initial_state = create_model(model=cell_type,
+                #                                     num_cells=self._num_units_per_layer,
+                #                                     batch_size=batch_size,
+                #                                     as_list=False if cell_type == 'multi_skip_lstm' else True,
+                #                                     learn_initial_state=True if 'skip' in cell_type else False,
+                #                                     use_dropout=self._hparams.use_dropout,
+                #                                     dropout_probability=self._dropout_probability)
+                
                 self._encoder_cells = maybe_list(self._encoder_cells)
+                print(self._num_units_per_layer)
+                print('encoder_cells', self._encoder_cells)
+                print('AttentiveEncoder_initial_state', initial_state)
 
                 #### here weird code
 
@@ -261,8 +342,44 @@ class AttentiveEncoder(Seq2SeqEncoder):
                 # self._attended_memory = noise
 
                 #### here stop weird code
-
+                if cell_type == 'skip_lstm' and self._hparams.separate_skip_rnn:
+                    skip_cell = self._encoder_cells[0]
+                    self._encoder_cells = self._encoder_cells[1:]
+                    
+                    skip_out = tf.nn.dynamic_rnn(
+                        cell=skip_cell,
+                        inputs=encoder_inputs,
+                        sequence_length=self._inputs_len,
+                        parallel_iterations=batch_size,
+                        swap_memory=False,
+                        dtype=self._hparams.dtype,
+                        scope=scope,
+                        initial_state=skip_cell.trainable_initial_state(batch_size),
+                    )
+                    print('skip_out', skip_out)
+                    skip_output, skip_final_state = skip_out
+                    h, updated_states = skip_output
+                    print('skip_encoder_updated_states', updated_states)
+                    cost_per_sample = self._hparams.cost_per_sample
+                    budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states, 1), 0)
+                    meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states, 1), 0)
+                    self.skip_infos = SkipInfoTuple(updated_states, meanUpdates, budget_loss)
+                    # Tried to remove the skipped states in the output, but this destroys the input shape
+                    #updated_states_shape = tf.shape(updated_states)
+                    #h_shape = tf.shape(h)
+                    #updated_states = tf.reshape(updated_states, [batch_size, updated_states_shape[1]])
+                    #new_h = tf.boolean_mask(h, tf.where(updated_states == 1.))
+                    #new_h = tf.where(updated_states == 1., h, tf.zeros(shape=h_shape))
+                    #print('new_h', new_h)
+                    #new_h_shape = tf.shape(new_h)
+                    #new_h = tf.reshape(new_h, [batch_size, new_h_shape[0] / batch_size, new_h_shape[1]])
+                    #self._inputs_len = (batch_size, new_h_shape[0] / batch_size)
+                
+                    print('skip_encoder_layer_h', h)
+                print('attended_memory', self._attended_memory)
+                print(self._encoder_cells)
                 attention_cells, dummy_initial_state = add_attention(
+                    cell_type='lstm' if self._hparams.separate_skip_rnn else cell_type,
                     cells=self._encoder_cells[-1],
                     attention_types=self._hparams.attention_type[0],
                     num_units=self._num_units_per_layer[-1],
@@ -270,25 +387,81 @@ class AttentiveEncoder(Seq2SeqEncoder):
                     memory_len=self._attended_memory_length,
                     mode=self._mode,
                     dtype=self._hparams.dtype,
+                    initial_state=initial_state[-1] if (isinstance(initial_state, tuple) and not isinstance(initial_state, SkipLSTMStateTuple)) else initial_state,
                     batch_size=tf.shape(self._inputs_len),
                     write_attention_alignment=self._hparams.write_attention_alignment,
                     fusion_type='linear_fusion',
                 )
-
+                print('AttentiveEncoder_initial_state2', initial_state)
+                if isinstance(initial_state, tuple) and not isinstance(initial_state, SkipLSTMStateTuple):
+                    initial_state = list(initial_state)
+                    initial_state[-1] = dummy_initial_state
+                    initial_state = tuple(initial_state)
+                else:
+                    initial_state = dummy_initial_state
                 self._encoder_cells[-1] = attention_cells
 
-                self._encoder_cells = maybe_multirnn(self._encoder_cells)
+                # initial_state = self._encoder_cells.get_initial_state(inputs=None, batch_size=batch_size, dtype=self._hparams.dtype)
+                #initial_state = []
+                #for i, cell in enumerate(self._encoder_cells):
+                #    print(i, cell)
+                #    if isinstance(cell, SkipLSTMCell):
+                #        #pass
+                #        #with tf.variable_scope(f'layer_{i}') as init_scope:
+                #        initial_state.append(cell.zero_state(batch_size, dtype=self._hparams.dtype))
+                #    else:
+                #        with tf.variable_scope(f'layer_{i}'):
+                #            initial_state.append(
+                #                cell.get_initial_state(inputs=None, batch_size=batch_size, dtype=self._hparams.dtype))
+                #initial_state = tuple(initial_state)
 
-                self._encoder_outputs, self._encoder_final_state = tf.nn.dynamic_rnn(
+                print('AttentiveEncoder_encoder_cells', self._encoder_cells)
+                self._encoder_cells = maybe_multirnn(self._encoder_cells)
+                
+                print('AttentiveEncoder_encoder_cells', self._encoder_cells)
+                print('AttentiveEncoder_encoder_inputs', encoder_inputs)
+                print('AttentiveEncoder_inputs_len', self._inputs_len)
+                #initial_state = self._encoder_cells.get_initial_state(batch_size=batch_size, dtype=self._hparams.dtype)
+                #print('AttentiveEncoder_initial_state_final', initial_state)
+                out = tf.nn.dynamic_rnn(
                     cell=self._encoder_cells,
-                    inputs=encoder_inputs,
+                    inputs=encoder_inputs if not self._hparams.separate_skip_rnn else h,
                     sequence_length=self._inputs_len,
                     parallel_iterations=self._hparams.batch_size[0 if self._mode == 'train' else 1],
                     swap_memory=False,
                     dtype=self._hparams.dtype,
                     scope=scope,
+                    initial_state=initial_state,
                     )
 
+                self._encoder_outputs, self._encoder_final_state = out
+                print("AttentiveEncoder_dynamic_rnn_out", self._encoder_outputs)
+                print("AttentiveEncoder_dynamic_rnn_fs", self._encoder_final_state)
+                
+                if not self._hparams.separate_skip_rnn and 'skip' in cell_type:
+                    self._encoder_outputs, updated_states = self._encoder_outputs
+                    cost_per_sample = self._hparams.cost_per_sample
+                    budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states, 1), 0)
+                    meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states, 1), 0)
+                    self.skip_infos = SkipInfoTuple(updated_states, meanUpdates, budget_loss)
+                    
+                    if isinstance(self._encoder_final_state, tuple) and not isinstance(self._encoder_final_state, seq2seq.AttentionWrapperState):
+                        self._encoder_final_state = self._encoder_final_state[-1]
+                    print('AttentiveEncoder_final_state_inBetween', self._encoder_final_state)
+                    if isinstance(self._encoder_final_state, seq2seq.AttentionWrapperState):
+                        cell_state = self._encoder_final_state.cell_state
+                        try:
+                            cell_state = [LSTMStateTuple(cs.c, cs.h) for cs in cell_state]
+                        except:
+                            cell_state = LSTMStateTuple(cell_state.c, cell_state.h)
+                        self._encoder_final_state = seq2seq.AttentionWrapperState(cell_state,
+                                                                                  self._encoder_final_state.attention,
+                                                                                  self._encoder_final_state.time,
+                                                                                  self._encoder_final_state.alignments,
+                                                                                  self._encoder_final_state.alignment_history,
+                                                                                  self._encoder_final_state.attention_state)
+                    print('AttentiveEncoder_final_state', self._encoder_final_state)
+                    
                 if self._hparams.write_attention_alignment is True:
                     # self.weights_summary = self._encoder_final_state[-1].attention_weight_history.stack()
                     self.attention_summary, self.attention_alignment = self._create_attention_alignments_summary(maybe_list(self._encoder_final_state)[-1])
@@ -317,16 +490,19 @@ class AttentiveEncoder(Seq2SeqEncoder):
             """
 
             from tensorflow.contrib.seq2seq.python.ops.attention_wrapper import AttentionWrapperState
-
+            print('prepare_final_state', state)
             final_state = []
             if type(state) is tuple:
                 for cell in state:
                     if type(cell) == AttentionWrapperState:
                         final_state.append(cell.cell_state)
                     else:
+                        print('prepare_final_state_cell', cell)
                         final_state.append(cell)
+                print('prepare_final_State', final_state)
                 return final_state
             else:  # only one RNN layer of attention wrapped cells
+                print('prepare_final_state', state.cell_state)
                 return state.cell_state
 
         return EncoderData(

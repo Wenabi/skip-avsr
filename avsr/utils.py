@@ -73,3 +73,38 @@ def get_files(file_list, dataset_dir, remove_sa=True, shuffle_sentences=False):
         shuffle(contents)
 
     return contents
+
+
+def compute_measures(predictions_dict, ground_truth_dict, split_words=False):
+    p, n = 0, 0
+    if len(predictions_dict.items()) > 0:
+        for fname, prediction in predictions_dict.items():
+            prediction = _strip_extra_chars(prediction)
+            ground_truth = _strip_extra_chars(ground_truth_dict[fname])
+            
+            if split_words is True:
+                prediction = ''.join(prediction).split()
+                ground_truth = ''.join(ground_truth).split()
+            # print("prediction", prediction)
+            # print("ground_truth", ground_truth)
+            # print("F1-Score", f1_score(ground_truth, prediction, average='micro'))
+            intersection = 0
+            p_b = 0
+            n_b = 0
+            for u in set(ground_truth):
+                # Indices
+                ri = [i for i, e in enumerate(ground_truth) if e == u]
+                ai = [i for i, e in enumerate(prediction) if e == u]
+                
+                intersection += len([e for e in ai if e in ri])
+                p_b += len(ri)
+                n_b += len(ai)
+            p += intersection / p_b if p_b > 0 else 0
+            n += intersection / n_b if n_b > 0 else 0
+            # print("MyF1-score", (2*(intersection/p_b)*(intersection/n_b))/((intersection/p_b)+(intersection/n_b)))
+        p = p / len(predictions_dict.items())
+        n = n / len(predictions_dict.items())
+        f = (2 * p * n) / (p + n) if (p + n) > 0 else 0
+    else:
+        p, n, f = 0, 0, 0
+    return p, n, f

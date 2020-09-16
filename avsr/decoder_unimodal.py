@@ -1,10 +1,13 @@
 import tensorflow as tf
+import collections
 from tensorflow.contrib import seq2seq
 from .cells import build_rnn_layers
 from tensorflow.python.layers.core import Dense
 from tensorflow.python.ops import array_ops
 from .attention import add_attention
+from avsr.graph_definition import create_model
 
+SkipInfoTuple = collections.namedtuple("SkipInfoTuple", ("updated_states", "meanUpdates", "budget_loss"))
 
 class Seq2SeqUnimodalDecoder(object):
     r"""
@@ -40,6 +43,8 @@ class Seq2SeqUnimodalDecoder(object):
         self._hparams = hparams
 
         self._mode = mode
+
+        self.skip_infos = None
 
         reverse_dict = {v: k for k, v in hparams.unit_dict.items()}
 
@@ -97,15 +102,24 @@ class Seq2SeqUnimodalDecoder(object):
         """
 
         with tf.variable_scope("Decoder"):
-
-            self._decoder_cells = build_rnn_layers(
-                cell_type=self._hparams.cell_type,
+            batch_size = self._hparams.batch_size[0 if self._mode == 'train' else 1]
+            cell_type = self._hparams.cell_type[2]
+            self._decoder_cells, initial_state = build_rnn_layers(
+                cell_type=cell_type,
                 num_units_per_layer=self._hparams.decoder_units_per_layer,
                 use_dropout=self._hparams.use_dropout,
                 dropout_probability=self._hparams.decoder_dropout_probability,
                 mode=self._mode,
+                batch_size=batch_size,
                 dtype=self._hparams.dtype,
             )
+            #self._decoder_cells, self._initial_states = create_model(model=cell_type,
+            #                                                   num_cells=self._hparams.decoder_units_per_layer,
+            #                                                   batch_size=batch_size,
+            #                                                   as_list=True,
+            #                                                   learn_initial_state=False,
+            #                                                   use_dropout=self._hparams.use_dropout,
+            #                                                   dropout_probability=self._hparams.decoder_dropout_probability)
 
             self._construct_decoder_initial_state()
 
@@ -129,15 +143,17 @@ class Seq2SeqUnimodalDecoder(object):
         """
 
         encoder_state = self._encoder_output.final_state
-
+        print('decoder_initial_state_encoder_state', encoder_state)
         enc_layers = len(self._hparams.encoder_units_per_layer[1])
         dec_layers = len(self._hparams.decoder_units_per_layer)
-
+        
         if enc_layers == 1:
             encoder_state = [encoder_state, ]
-
         if dec_layers == 1:  # N - 1
-            self._decoder_initial_state = encoder_state[-1]
+            if type(encoder_state) == tuple or type(encoder_state) == list:
+                self._decoder_initial_state = encoder_state[-1]
+            else:
+                self._decoder_initial_state = encoder_state
         else:
             if self._hparams.bijective_state_copy is True:  # N - N
                 if enc_layers != dec_layers:
@@ -150,6 +166,7 @@ class Seq2SeqUnimodalDecoder(object):
                 for j in range(dec_layers - 1):
                     self._decoder_initial_state.append(zero_state[j+1])
                 self._decoder_initial_state = tuple(self._decoder_initial_state)
+        print('_decoder_initial_state', self._decoder_initial_state)
 
     def _prepare_attention_memories(self):
         r"""
@@ -201,7 +218,7 @@ class Seq2SeqUnimodalDecoder(object):
             helper=self._helper_greedy,
             initial_state=initial_state,
             output_layer=self._dense_layer)
-
+        
         outputs, states, lengths = seq2seq.dynamic_decode(
             self._decoder_inference,
             impute_finished=True,
@@ -209,6 +226,7 @@ class Seq2SeqUnimodalDecoder(object):
             maximum_iterations=self._hparams.max_label_length)
 
         self.inference_outputs = outputs.rnn_output
+        
         self.inference_predicted_ids = outputs.sample_id
 
         if self._hparams.write_attention_alignment is True:
@@ -218,8 +236,10 @@ class Seq2SeqUnimodalDecoder(object):
         r"""
         Builds a beam search test decoder
         """
+        cell_type = self._hparams.cell_type[2]
         if self._hparams.enable_attention is True:
             cells, initial_state = add_attention(
+                cell_type=cell_type,
                 cells=self._decoder_cells,
                 attention_types=self._hparams.attention_type[1],
                 num_units=self._hparams.decoder_units_per_layer[-1],
@@ -250,13 +270,22 @@ class Seq2SeqUnimodalDecoder(object):
             output_layer=self._dense_layer,
             length_penalty_weight=0.6,
         )
-
-        outputs, states, lengths = seq2seq.dynamic_decode(
+        out = seq2seq.dynamic_decode(
             self._decoder_inference,
             impute_finished=False,
             maximum_iterations=self._hparams.max_label_length,
             swap_memory=False)
 
+        outputs, states, lengths = out
+        
+        if "skip" in cell_type:
+            outputs, updated_states = outputs
+            print("Seq2SeqEncoder_updated_states", updated_states)
+            cost_per_sample = self._hparams.cost_per_sample
+            budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states, 1), 0)
+            meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states, 1), 0)
+            self.skip_infos = SkipInfoTuple(updated_states, meanUpdates, budget_loss)
+        
         if self._hparams.write_attention_alignment is True:
             self.attention_summary, self.attention_alignment = self._create_attention_alignments_summary(states)
 
@@ -310,9 +339,13 @@ class Seq2SeqUnimodalDecoder(object):
         #     sequence_length=self._labels_len,
         #     sampling_probability=self._sampling_probability_outputs,
         # )
-
+        
         if self._hparams.enable_attention is True:
+            print('_encoder_memory', self._encoder_memory)
+            print(self._decoder_initial_state)
+            cell_type = self._hparams.cell_type[2]
             cells, initial_state = add_attention(
+                cell_type=cell_type,
                 cells=self._decoder_cells,
                 attention_types=self._hparams.attention_type[1],
                 num_units=self._hparams.decoder_units_per_layer[-1],
@@ -328,21 +361,32 @@ class Seq2SeqUnimodalDecoder(object):
         else:
             cells = self._decoder_cells
             initial_state = self._decoder_initial_state
-
+        
+        print('Decoder_unimodal_cells', cells)
+        print('Decoder_unimodal_initial_state', initial_state)
+        
         decoder_train = seq2seq.BasicDecoder(
             cell=cells,
             helper=helper_train,
             initial_state=initial_state,
             output_layer=self._dense_layer,
         )
-
-        outputs, fstate, fseqlen = seq2seq.dynamic_decode(
+        out = seq2seq.dynamic_decode(
             decoder_train,
             output_time_major=False,
             impute_finished=True,
             swap_memory=False,
-
         )
+
+        outputs, fstate, fseqlen = out
+
+        if "skip" in cell_type:
+            outputs, updated_states = outputs
+            print("DecoderUnimodal_updated_states", updated_states)
+            cost_per_sample = self._hparams.cost_per_sample
+            budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states, 1), 0)
+            meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states, 1), 0)
+            self.skip_infos = SkipInfoTuple(updated_states, meanUpdates, budget_loss)
 
         return outputs, fstate, fseqlen
 
@@ -356,7 +400,18 @@ class Seq2SeqUnimodalDecoder(object):
                 learning_rate=self._hparams.learning_rate,
                 global_step=self._global_step,
                 first_decay_steps=self._hparams.lr_decay[1],
-            )
+                alpha=0.0001)
+        elif self._hparams.lr_decay[0] == 'linear':
+            self.current_lr = tf.train.polynomial_decay(
+                learning_rate=self._hparams.learning_rate,
+                global_step=self._global_step,
+                decay_steps=self._hparams.lr_decay[1])
+        elif self._hparams.lr_decay[0] == 'cosine':
+            self.current_lr = tf.train.cosine_decay(
+                learning_rate=self._hparams.learning_rate,
+                global_step=self._global_step,
+                decay_steps=self._hparams.lr_decay[1],
+                alpha=0.0001)
         else:
             print('learning rate policy not implemented, falling back to constant learning rate')
             self.current_lr = self._hparams.learning_rate
@@ -392,5 +447,5 @@ def _project_lstm_state_tuple(state_tuple, num_units):
     proj_h = state_proj_layer(cat_h)
 
     projected_state = tf.contrib.rnn.LSTMStateTuple(c=proj_c, h=proj_h)
-
+    print('projected_state', projected_state)
     return projected_state

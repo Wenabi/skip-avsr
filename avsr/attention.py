@@ -1,6 +1,8 @@
 import tensorflow as tf
 from tensorflow.contrib import seq2seq
-
+from avsr.own_cells import SkipAttentionWrapper
+from tensorflow.contrib.seq2seq import AttentionWrapperState
+from avsr.skip_rnn_cells import SkipLSTMStateTuple
 
 def create_attention_mechanism(
         attention_type,
@@ -130,6 +132,7 @@ def create_attention_mechanisms(num_units, attention_types, mode, dtype, beam_se
 
 
 def add_attention(
+        cell_type,
         cells,
         attention_types,
         num_units,
@@ -169,25 +172,48 @@ def add_attention(
     if beam_search is True:
         initial_state= seq2seq.tile_batch(
             initial_state, multiplier=beam_width)
-
-    attention_cells = seq2seq.AttentionWrapper(
-        cell=cells,
-        attention_mechanism=attention_mechanisms,
-        attention_layer_size=attention_layer_sizes,
-        # initial_cell_state=decoder_initial_state,
-        alignment_history=write_attention_alignment,
-        output_attention=output_attention,
-        attention_layer=attention_layers,
-    )
-
+    print('add_attention_cell_type', cell_type)
+    if 'skip' in cell_type:
+        print('Using SkipAttentionWrapper')
+        attention_cells = SkipAttentionWrapper(
+            cell=cells,
+            attention_mechanism=attention_mechanisms,
+            attention_layer_size=attention_layer_sizes,
+            alignment_history=write_attention_alignment,
+            output_attention=output_attention,
+            attention_layer=attention_layers,
+        )
+        attention_cells._avsr_layer = "encoder"
+        attention_cells._cell_type = cell_type
+    else:
+        print('Not using SkipAttentionWrapper')
+        attention_cells = seq2seq.AttentionWrapper(
+            cell=cells,
+            attention_mechanism=attention_mechanisms,
+            attention_layer_size=attention_layer_sizes,
+            # initial_cell_state=decoder_initial_state,
+            alignment_history=write_attention_alignment,
+            output_attention=output_attention,
+            attention_layer=attention_layers,
+        )
+    print('attention_batch_size', batch_size)
+    print('attention_attention_cells', attention_cells)
+    print('attention_initial_state', initial_state)
     attn_zero = attention_cells.zero_state(
         dtype=dtype,
         batch_size=batch_size * beam_width if beam_search is True else batch_size)
 
+    print('add_attention_attn_zero', attn_zero)
+    print('add_attention_initial_state', initial_state)
+    if isinstance(initial_state, tuple) and not isinstance(initial_state, tf.contrib.rnn.LSTMStateTuple) \
+            and not isinstance(initial_state, SkipLSTMStateTuple):
+        print('initial_state_is_tuple')
+        initial_state = list(initial_state)
+    print('add_attention_initial_state', initial_state)
     if initial_state is not None:
         initial_state = attn_zero.clone(
             cell_state=initial_state)
-
+    print(attention_cells, initial_state)
     return attention_cells, initial_state
 
 

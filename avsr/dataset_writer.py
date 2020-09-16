@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+import time
 from .audio import process_audio, read_wav_file
 from os import path, makedirs
 import glob
@@ -12,16 +13,19 @@ class TFRecordWriter(object):
 
     def __init__(self,
                  train_files,
-                 test_files,
+                 #trainTest_files,
+                 #test_files,
                  label_map,
                  remove_ext=True):
 
         if remove_ext is True:
             self._train_files = _remove_extensions(train_files)
-            self._test_files = _remove_extensions(test_files)
+            #self._trainTest_files = _remove_extensions(trainTest_files)
+            #self._test_files = _remove_extensions(test_files)
         else:
             self._train_files = train_files
-            self._test_files = test_files
+            #self._trainTest_files = trainTest_files
+            #self._test_files = test_files
 
         self._label_map = label_map
 
@@ -30,18 +34,28 @@ class TFRecordWriter(object):
                              unit_list_file,
                              label_file,
                              train_record_name,
-                             test_record_name):
+                             #trainTest_record_name,
+                             #test_record_name
+                             ):
 
         labels_dict = _create_labels_dict(label_file)
         unit_dict = _create_unit_dict(unit_list_file)
 
-        files = (self._train_files, self._test_files)
-        for idx, record in enumerate([train_record_name, test_record_name]):
+        files = (self._train_files, )#, self._trainTest_files, self._test_files)
+        for idx, record in enumerate([train_record_name]):
             makedirs(path.dirname(record), exist_ok=True)
             writer = tf.io.TFRecordWriter(record)
 
-            for file in files[idx]:
-                print(file)
+            start = time.time()
+            times = []
+            for i, file in enumerate(files[idx]):
+                if i % 100 == 0 and i > 0:
+                    end = time.time()
+                    diff = end - start
+                    times.append(diff)
+                    average_time = sum(times) / len(times)
+                    print(i, len(files[idx]), ((len(files[idx]) - i) // 100) * average_time)
+                    start = time.time()
                 sentence_id = self._label_map[file]
                 ground_truth = labels_dict[sentence_id]
                 labels = _symbols_to_ints(ground_truth, unit_dict)
@@ -53,7 +67,8 @@ class TFRecordWriter(object):
 
     def write_audio_records(self,
                             train_record_name,
-                            test_record_name,
+                            #trainTest_record_name,
+                            #test_record_name,
                             content_type=None,
                             extension=None,
                             transform=None,
@@ -63,7 +78,9 @@ class TFRecordWriter(object):
                             ):
 
         files = (self._train_files,
-                 self._test_files,)
+                 #self._trainTest_files,
+                 #self._test_files,
+                 )
 
         if transform is not None:
             # build the graph with tf ops only once
@@ -77,7 +94,7 @@ class TFRecordWriter(object):
             noise_data = None
             snr_list = ('clean', )
 
-        for idx, record in enumerate([train_record_name, test_record_name]):
+        for idx, record in enumerate([train_record_name]):
             makedirs(path.dirname(record), exist_ok=True)
 
             writers = []
@@ -88,8 +105,16 @@ class TFRecordWriter(object):
                     record_name = path.join(record + '_' + noise_type + '_' + str(snr) + 'db.tfrecord', )
                 writers.append(tf.python_io.TFRecordWriter(record_name))
 
-            for file in files[idx]:
-                print(file)
+            start = time.time()
+            times = []
+            for i, file in enumerate(files[idx]):
+                if i % 100 == 0 and i > 0:
+                    end = time.time()
+                    diff = end - start
+                    times.append(diff)
+                    average_time = sum(times) / len(times)
+                    print(i, len(files[idx]), ((len(files[idx]) - i) // 100) * average_time)
+                    start = time.time()
                 sentence_id = self._label_map[file]
 
                 input_data = read_data_file(file, extension, sr=target_sr)
@@ -122,7 +147,8 @@ class TFRecordWriter(object):
 
     def write_audio_records_allsnrs(self,
                             train_record_name,
-                            test_record_name,
+                            #trainTest_record_name,
+                            #test_record_name,
                             content_type=None,
                             extension=None,
                             transform=None,
@@ -132,7 +158,9 @@ class TFRecordWriter(object):
                             ):
 
         files = (self._train_files,
-                 self._test_files,)
+                 #self._trainTest_files,
+                 #self._test_files,
+                 )
 
         if transform is not None:
             # build the graph with tf ops only once
@@ -146,14 +174,22 @@ class TFRecordWriter(object):
             noise_data = None
             snr_list = ('clean', )
 
-        for idx, record in enumerate([train_record_name, test_record_name]):
+        for idx, record in enumerate([train_record_name]):
             makedirs(path.dirname(record), exist_ok=True)
 
             record_name = path.join(record + '_allsnrs' + '.tfrecord', )
             writer = tf.python_io.TFRecordWriter(record_name)
 
-            for file in files[idx]:
-                print(file)
+            start = time.time()
+            times = []
+            for i, file in enumerate(files[idx]):
+                if i % 100 == 0 and i > 0:
+                    end = time.time()
+                    diff = end - start
+                    times.append(diff)
+                    average_time = sum(times) / len(times)
+                    print(i, len(files[idx]), ((len(files[idx]) - i) // 100) * average_time)
+                    start = time.time()
                 sentence_id = self._label_map[file]
 
                 input_data = read_data_file(file, extension, sr=target_sr)
@@ -189,20 +225,30 @@ class TFRecordWriter(object):
 
     def write_video_records(self,
                             train_record_name,
-                            test_record_name,
+                            #trainTest_record_name,
+                            #test_record_name,
                             content_type=None,
                             extension=None,
                             ):
         files = (self._train_files,
-                 self._test_files,)
+                 #self._trainTest_files,
+                 #self._test_files,
+                 )
 
-        for idx, record in enumerate([train_record_name, test_record_name]):
+        for idx, record in enumerate([train_record_name]):
             makedirs(path.dirname(record), exist_ok=True)
             writer = tf.python_io.TFRecordWriter(record)
 
-            for file in files[idx]:
-                # TODO add progress info
-                print(file)
+            start = time.time()
+            times = []
+            for i, file in enumerate(files[idx]):
+                if i % 100 == 0 and i > 0:
+                    end = time.time()
+                    diff = end - start
+                    times.append(diff)
+                    average_time = sum(times) / len(times)
+                    print(i, len(files[idx]), ((len(files[idx]) - i) // 100) * average_time)
+                    start = time.time()
                 sentence_id = self._label_map[file]
 
                 contents = read_data_file(file, extension)
@@ -215,7 +261,8 @@ class TFRecordWriter(object):
 
     def write_bmp_records(self,
                           train_record_name,
-                          test_record_name,
+                          #trainTest_record_name,
+                          #test_record_name,
                           bmp_dir,
                           output_resolution,
                           crop_lips=False,
@@ -232,15 +279,24 @@ class TFRecordWriter(object):
         """
 
         files = (self._train_files,
-                 self._test_files,)
+                 #self._trainTest_files,
+                 #self._test_files,
+                 )
 
-        for idx, record in enumerate([train_record_name, test_record_name]):
+        for idx, record in enumerate([train_record_name]):
             makedirs(path.dirname(record), exist_ok=True)
             writer = tf.python_io.TFRecordWriter(record)
 
-            for file in files[idx]:
-                # TODO add progress info
-                print(file)
+            start = time.time()
+            times = []
+            for i, file in enumerate(files[idx]):
+                if i % 100 == 0 and i > 0:
+                    end = time.time()
+                    diff = end - start
+                    times.append(diff)
+                    average_time = sum(times) / len(times)
+                    print(i, len(files[idx]), ((len(files[idx]) - i) // 100) * average_time)
+                    start = time.time()
                 sentence_id = self._label_map[file]
                 feature_dir = path.join(bmp_dir, sentence_id) + '_aligned'
 
