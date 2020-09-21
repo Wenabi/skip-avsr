@@ -582,7 +582,7 @@ def read_bmp_dir(feature_dir, output_resolution, crop_lips=False, append_aus=Fal
         resized = cv2.resize(image, output_resolution, interpolation=interp_method)
         data.append(resized)
 
-    video = np.asarray(data, dtype=np.float64)
+    video = np.asarray(data, dtype=np.float32)
 
     # debug time
     # for frame in video:

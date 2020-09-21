@@ -28,6 +28,7 @@ def run_experiment(
         video_processing = 'resnet_cnn'
 
     full_logfile = path.join('./logs', logfile)
+    print('full_logfile', full_logfile)
 
     ## warmup on short sentences
     if warmup_epochs > 1:
@@ -67,7 +68,7 @@ def run_experiment(
     for lr, iters, audio_train, audio_trainTest, audio_test in zip(learning_rates, iterations, audio_train_records, audio_trainTest_records, audio_test_records):
         running = True
         while running:
-            #try:
+            try:
                 with open(full_logfile, 'a') as f:
                     ad_name = audio_train.split('_')
                     if len(ad_name) == 3:
@@ -141,10 +142,10 @@ def run_experiment(
                 with open(full_logfile, 'a') as f:
                     f.write(20*'=' + '\n')
                 running = False
-            #except:
-            #    print('Error restarting experiment.')
-            #    with open(full_logfile, 'a') as f:
-            #        f.write('Error restarting experiment.\n')
+            except:
+                print('Error restarting experiment.')
+                with open(full_logfile, 'a') as f:
+                    f.write('Error restarting experiment.\n')
 
 
 

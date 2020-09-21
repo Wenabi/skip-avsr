@@ -245,7 +245,7 @@ class Seq2SeqModel(object):
         variables = tf.trainable_variables()
         gradients = tf.gradients(self.batch_loss, variables)  # not compatible with Nvidia AMP (fp16)
         # gradients = optimiser.compute_gradients(self.batch_loss, variables)
-
+        
         summaries= []
         for grad, variable in zip(gradients, variables):
             if isinstance(grad, tf.IndexedSlices):

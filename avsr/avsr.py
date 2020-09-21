@@ -81,10 +81,12 @@ class AVSR(object):
                  required_grahps=('train', 'eval'),
                  cost_per_sample=0.0,
                  experiment_name=None,
+                 experiment_path=None,
                  dataset_name=None,
                  max_label_length=500,
                  separate_skip_rnn=False,
                  write_summary=False,
+                 write_eval_data=False,
                  **kwargs,
                  ):
         r"""
@@ -215,9 +217,11 @@ class AVSR(object):
             profiling=profiling,
             cost_per_sample=cost_per_sample,
             experiment_name=experiment_name,
+            experiment_path=experiment_path,
             dataset_name=dataset_name,
             separate_skip_rnn=separate_skip_rnn,
             write_summary=write_summary,
+            write_eval_data=write_eval_data,
             kwargs=kwargs,
         )
         
@@ -254,13 +258,14 @@ class AVSR(object):
               try_restore_latest_checkpoint=False,
               ):
 
-        checkpoint_dir = path.join('checkpoints/'+self._hparams.dataset_name, path.split(logfile)[-1]+'/')
+        checkpoint_dir = path.join('checkpoints/'+self._hparams.experiment_path, path.split(logfile)[-1]+'/')
         checkpoint_path = path.join(checkpoint_dir, 'checkpoint.ckp')
         makedirs(path.dirname(checkpoint_dir), exist_ok=True)
         makedirs(path.dirname(logfile), exist_ok=True)
         makedirs(path.dirname(logfile + '_info'), exist_ok=True)
-        makedirs(
-            path.dirname(f'./eval_data/{self._hparams.dataset_name}/{self._hparams.experiment_name}/'), exist_ok=True)
+        if self._hparams.write_eval_data:
+            makedirs(
+                path.dirname(f'./eval_data/{self._hparams.experiment_path}/{self._hparams.experiment_name}/'), exist_ok=True)
         if self._hparams.write_summary:
             self._initialize_summaries('summaries', logfile)
         
@@ -295,7 +300,7 @@ class AVSR(object):
                 if loss_diff < 0.05 and len(loss_diff_list) >= 1:
                     loss_diff_list = []
         print(f'Loss Diff List is {loss_diff_list}')
-        patience = 5 if num_epochs > 50 else 15
+        patience = 5 if num_epochs > 200 else 10
         if len(loss_diff_list) < patience:
             f = open(logfile, 'a')
             num_epochs = last_epoch+num_epochs if num_epochs <100 else num_epochs
@@ -778,7 +783,7 @@ class AVSR(object):
                 error_rate['w_precision'] = w_precision
                 error_rate['w_fmeasure'] = w_fmeasure
 
-            outdir = path.join('predictions/' + self._hparams.dataset_name,
+            outdir = path.join('predictions/' + self._hparams.experiment_path,
                                path.split(path.split(checkpoint_path)[0])[-1] + "/" + mode + "/")
             makedirs(outdir, exist_ok=True)
             info = mode.replace("evaluate", "")
@@ -790,8 +795,8 @@ class AVSR(object):
             # plot_err_vs_seq_len(labels_dict, uer_dict, 'tmp.pdf')
             # mat = compute_uer_confusion_matrix(predictions_dict=predictions_dict, labels_dict=labels_dict, unit_dict=self._unit_dict)
             error_rates[mode] = error_rate
-            if mode == 'evaluateAllData' and self._write_attention_alignment:
-                p.dump(evaluate_data, open(f'./eval_data/{self._hparams.dataset_name}/{self._hparams.experiment_name}/eval_data_e{epoch}.p', 'wb'))
+            if mode == 'evaluateAllData' and self._write_attention_alignment and self._hparams.write_eval_data:
+                p.dump(evaluate_data, open(f'./eval_data/{self._hparams.experiment_path}/{self._hparams.experiment_name}/eval_data_e{epoch}.p', 'wb'))
         return error_rates
 
     def calc_validation_loss(self, checkpoint_path):
