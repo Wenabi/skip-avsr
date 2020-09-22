@@ -68,6 +68,7 @@ class AVSR(object):
                  max_sentence_length=None,
                  optimiser='Adam',
                  learning_rate=0.001,
+                 patience=5,
                  lr_decay=None,
                  loss_fun=None,
                  clip_gradients=True,
@@ -207,6 +208,7 @@ class AVSR(object):
             optimiser=optimiser,
             loss_scaling=128 if precision == 'float16' else 1,
             learning_rate=learning_rate,
+            patience=patience,
             lr_decay=lr_decay,
             loss_fun=loss_fun,
             clip_gradients=clip_gradients,
@@ -300,8 +302,7 @@ class AVSR(object):
                 if loss_diff < 0.05 and len(loss_diff_list) >= 1:
                     loss_diff_list = []
         print(f'Loss Diff List is {loss_diff_list}')
-        patience = 5 if num_epochs > 200 else 10
-        if len(loss_diff_list) < patience:
+        if len(loss_diff_list) < self._hparams.patience:
             f = open(logfile, 'a')
             num_epochs = last_epoch+num_epochs if num_epochs <100 else num_epochs
             print(last_epoch+1, num_epochs)
@@ -325,9 +326,17 @@ class AVSR(object):
                     audio_update_states = []
                     audio_state_numbers = []
                 if 'skip' in self._hparams.cell_type[2]:
-                    decoder_update_states_rate = []
-                    decoder_update_states = []
-                    decoder_state_numbers = []
+                    if self._hparams.architecture == 'av_align':
+                        decoder_update_states_rate = []
+                        decoder_update_states = []
+                        decoder_state_numbers = []
+                    elif self._hparams.architecture == 'bimodal':
+                        decoder_update_states_rate_video = []
+                        decoder_update_states_video = []
+                        decoder_state_numbers_video = []
+                        decoder_update_states_rate_audio = []
+                        decoder_update_states_audio = []
+                        decoder_state_numbers_audio = []
                 
                 start = time.time()
     
@@ -362,8 +371,13 @@ class AVSR(object):
                         if 'skip' in self._hparams.cell_type[1]:
                            session_outputs['audio_updated_states'] = self._train_model.model.audio_skip_infos.updated_states
                         if 'skip' in self._hparams.cell_type[2]:
-                           session_outputs['decoder_meanUpdates'] = self._train_model.model.decoder_skip_infos.meanUpdates
-                           session_outputs['decoder_updated_states'] = self._train_model.model.decoder_skip_infos.updated_states
+                            if self._hparams.architecture == 'av_align':
+                               session_outputs['decoder_updated_states'] = self._train_model.model.decoder_skip_infos.updated_states
+                            elif self._hparams.architecture == 'bimodal':
+                                session_outputs[
+                                    'decoder_updated_states_video'] = self._train_model.model.decoder_skip_infos_video.updated_states
+                                session_outputs[
+                                    'decoder_updated_states_audio'] = self._train_model.model.decoder_skip_infos_audio.updated_states
                         if self._hparams.write_summary:
                             session_outputs['merged_train_summaries'] = self._merged_train_summaries
                         
@@ -405,9 +419,51 @@ class AVSR(object):
                             audio_state_numbers.append(np.mean(a_us_number))
                             s += 1
                         if 'skip' in self._hparams.cell_type[2]:
-                            decoder_update_states_rate.append(outputs['decoder_meanUpdates'][0] / outputs['decoder_updated_states'].shape[1], )
-                            decoder_update_states.append(outputs['decoder_meanUpdates'][0])
-                            decoder_state_numbers.append(outputs['decoder_updated_states'].shape[1])
+                            if self._hparams.architecture == 'av_align':
+                                #decoder_update_states_rate.append(outputs['decoder_meanUpdates'][0] / outputs['decoder_updated_states'].shape[1], )
+                                #decoder_update_states.append(outputs['decoder_meanUpdates'][0])
+                                #decoder_state_numbers.append(outputs['decoder_updated_states'].shape[1])
+                                us = outputs['decoder_updated_states']
+                                d_us, d_us_rate, d_us_number = [], [], []
+                                for i in range(len(us)):
+                                    filename = outputs['inputs_filenames'][i].decode('utf-8')
+                                    n_us = np.sum(us[i][:self._audio_input_length[filename]])
+                                    d_us.append(n_us)
+                                    d_us_rate.append(n_us / self._audio_input_length[filename])
+                                    d_us_number.append(self._audio_input_length[filename])
+                                decoder_update_states_rate.append(np.mean(d_us_rate))
+                                decoder_update_states.append(np.mean(d_us))
+                                decoder_state_numbers.append(np.mean(d_us_number))
+                            elif self._hparams.architecture == 'bimodal':
+                                #decoder_update_states_rate_video.append(
+                                #    outputs['decoder_meanUpdates'][0] / outputs['decoder_updated_states_video'].shape[1], )
+                                #decoder_update_states_video.append(outputs['decoder_meanUpdates_video'][0])
+                                #decoder_state_numbers_video.append(outputs['decoder_updated_states_video'].shape[1])
+                                #decoder_update_states_rate_audio.append(
+                                #    outputs['decoder_meanUpdates'][0] / outputs['decoder_updated_states_audio'].shape[1], )
+                                #decoder_update_states_audio.append(outputs['decoder_meanUpdates_audio'][0])
+                                #decoder_state_numbers_audio.append(outputs['decoder_updated_states_audio'].shape[1])
+                                v_us = outputs['decoder_updated_states_video']
+                                a_us = outputs['decoder_updated_states_video']
+                                d_us_v, d_us_rate_v, d_us_number_v = [], [], []
+                                d_us_a, d_us_rate_a, d_us_number_a = [], [], []
+                                for i in range(len(v_us)):
+                                    filename = outputs['inputs_filenames'][i].decode('utf-8')
+                                    n_v_us = np.sum(v_us[i][:self._video_input_length[filename]])
+                                    d_us_v.append(n_v_us)
+                                    d_us_rate_v.append(n_v_us / self._video_input_length[filename])
+                                    d_us_number_v.append(self._video_input_length[filename])
+                                    n_a_us = np.sum(a_us[i][:self._audio_input_length[filename]])
+                                    d_us_a.append(n_a_us)
+                                    d_us_rate_a.append(n_a_us / self._audio_input_length[filename])
+                                    d_us_number_a.append(self._audio_input_length[filename])
+                                decoder_update_states_rate_video.append(np.mean(d_us_rate_v))
+                                decoder_update_states_video.append(np.mean(d_us_v))
+                                decoder_state_numbers_video.append(np.mean(d_us_number_v))
+                                decoder_update_states_rate_audio.append(np.mean(d_us_rate_v))
+                                decoder_update_states_audio.append(np.mean(d_us_v))
+                                decoder_state_numbers_audio.append(np.mean(d_us_number_v))
+                                
                             s += 1
                             
                         if self._hparams.profiling is True:
@@ -452,18 +508,40 @@ class AVSR(object):
                 output_info = 'Batch_Loss:{} Budget_Loss:{} Loss_Rate:{}'.format(
                     np.mean(batch_loss_list), np.mean(budget_loss_list), np.mean(loss_rate_list))
                 print(output_info)
-                if 'skip' in self._hparams.cell_type[0]:
-                    oi = 'Video_Updated_States_Rate:{} Video_Updated_States:{} Video_Number_Of_States:{}'.format(
-                        np.mean(video_update_states_rate), np.mean(video_update_states), np.mean(video_state_numbers))
-                    print(oi)
-                    output_info += ' ' + oi
-                if 'skip' in self._hparams.cell_type[1]:
-                    oi = 'Audio_Updated_States_Rate:{} Audio_Updated_States:{} Audio_Number_Of_States:{}'.format(
-                        np.mean(audio_update_states_rate), np.mean(audio_update_states), np.mean(audio_state_numbers))
-                    print(oi)
-                    output_info += ' ' + oi
-                f.write(output_info+'\n')
+                f.write(output_info + '\n')
                 f.flush()
+                if 'skip' in self._hparams.cell_type[0]:
+                    output_info = 'Video_Updated_States_Rate:{} Video_Updated_States:{} Video_Number_Of_States:{}'.format(
+                        np.mean(video_update_states_rate), np.mean(video_update_states), np.mean(video_state_numbers))
+                    print(output_info)
+                    f.write(output_info + '\n')
+                    f.flush()
+                if 'skip' in self._hparams.cell_type[1]:
+                    output_info = 'Audio_Updated_States_Rate:{} Audio_Updated_States:{} Audio_Number_Of_States:{}'.format(
+                        np.mean(audio_update_states_rate), np.mean(audio_update_states), np.mean(audio_state_numbers))
+                    print(output_info)
+                    f.write(output_info+'\n')
+                    f.flush()
+                if 'skip' in self._hparams.cell_type[2]:
+                    if self._hparams.architecture == 'av_align':
+                        output_info = 'Decoder_Updated_States_Rate:{} Decoder_Updated_States:{} Decoder_Number_Of_States:{}'.format(
+                            np.mean(decoder_update_states_rate), np.mean(decoder_update_states), np.mean(decoder_state_numbers))
+                        print(output_info)
+                        f.write(output_info+'\n')
+                        f.flush()
+                    elif self._hparams.architecture == 'bimodal':
+                        output_info = 'Decoder_Updated_States_Rate_Video:{} Decoder_Updated_States_Video:{} Decoder_Number_Of_States_Video:{}'.format(
+                            np.mean(decoder_update_states_rate_video), np.mean(decoder_update_states_video),
+                            np.mean(decoder_state_numbers_video))
+                        print(output_info)
+                        f.write(output_info + '\n')
+                        f.flush()
+                        output_info = 'Decoder_Updated_States_Rate_Audio:{} Decoder_Updated_States_Audio:{} Decoder_Number_Of_States_Audio:{}'.format(
+                            np.mean(decoder_update_states_rate_audio), np.mean(decoder_update_states_audio),
+                            np.mean(decoder_state_numbers_audio))
+                        print(output_info)
+                        f.write(output_info + '\n')
+                        f.flush()
     
                 save_path = self._train_model.model.saver.save(
                     sess=self._train_session,
@@ -523,7 +601,7 @@ class AVSR(object):
                     loss_diff_list.append(loss_diff)
                 if loss_diff < 0.05 and len(loss_diff_list) >= 1:
                     loss_diff_list = []
-                if len(loss_diff_list) == patience:
+                if len(loss_diff_list) == self._hparams.patience:
                     print(f'Stopped training early. Using model of epoch {current_epoch}.')
                     f.write(f'Stopped training early. Using model of epoch {current_epoch}.\n')
                     f.flush()
@@ -611,7 +689,11 @@ class AVSR(object):
                 if 'skip' in self._hparams.cell_type[1]:
                     session_dict['audio_updated_states'] = evaluate_model.model.audio_skip_infos.updated_states
                 if 'skip' in self._hparams.cell_type[2]:
-                    session_dict['decoder_updated_states'] = evaluate_model.model.decoder_skip_infos.updated_states
+                    if self._hparams.architecture == 'av_align':
+                        session_dict['decoder_updated_states'] = evaluate_model.model.decoder_skip_infos.updated_states
+                    elif self._hparams.architecture == 'bimodal':
+                        session_dict['decoder_updated_states_video'] = evaluate_model.model.decoder_skip_infos_video.updated_states
+                        session_dict['decoder_updated_states_audio'] = evaluate_model.model.decoder_skip_infos_audio.updated_states
             
                 if self._write_attention_alignment is True:
                     session_dict['decoder_attention_summary'] = evaluate_model.model._decoder.attention_summary
@@ -673,7 +755,28 @@ class AVSR(object):
                         labels_symbs = [self._unit_dict[sym] for sym in labels_ids]
     
                         file = outputs['input_filenames'][idx].decode('utf-8')
-    
+                        
+                        if self._hparams.write_eval_data is True and mode == 'evaluateAllData':
+                            evaluate_data[file] = {
+                                'encoder_attention_summary': outputs['encoder_attention_summary'][idx],
+                                'encoder_attention_alignment': outputs['encoder_attention_alignment'][idx],
+                                'decoder_attention_summary': outputs['decoder_attention_summary'][idx],
+                                'decoder_attention_alignment': outputs['decoder_attention_alignment'][idx]}
+                            if self._hparams.architecture == 'av_align':
+                                if 'skip' in self._hparams.cell_type[0]:
+                                    evaluate_data[file]['video_updated_states'] = outputs['video_updated_states'][idx][
+                                                                                  :self._video_input_length[file]]
+                                if 'skip' in self._hparams.cell_type[1]:
+                                    evaluate_data[file]['audio_updated_states'] = outputs['audio_updated_states'][idx][
+                                                                                  :self._audio_input_length[file]]
+                                if 'skip' in self._hparams.cell_type[2]:
+                                    evaluate_data[file]['decoder_updated_states'] = outputs['decoder_updated_states'][
+                                        idx]
+                            elif self._hparams.architecture == 'bimodal':
+                                if 'skip' in self._hparams.cell_type[2]:
+                                    evaluate_data[file]['decoder_updated_states_video'] = outputs['decoder_updated_states_video'][idx]
+                                    evaluate_data[file]['decoder_updated_states_audio'] = outputs['decoder_updated_states_audio'][idx]
+                        
                         if self._write_attention_alignment is True and mode == 'evaluateAllData':
     
                             if self._hparams.architecture == 'unimodal':
@@ -701,18 +804,6 @@ class AVSR(object):
                                 fname = path.join(alignments_outdir, file + '_av.png')
                                 with tf.gfile.GFile(fname, mode='w') as img_f:
                                     img_f.write(cross_modal_summary.value[idx].image.encoded_image_string)
-                                
-                                evaluate_data[file] = {'encoder_attention_summary':outputs['encoder_attention_summary'][idx],
-                                                        'encoder_attention_alignment':outputs['encoder_attention_alignment'][idx],
-                                                       'decoder_attention_summary':outputs['decoder_attention_summary'][idx],
-                                                       'decoder_attention_alignment':outputs['decoder_attention_alignment'][idx]}
-                                
-                                if 'skip' in self._hparams.cell_type[0]:
-                                    evaluate_data[file]['video_updated_states'] = outputs['video_updated_states'][idx][:self._video_input_length[file]]
-                                if 'skip' in self._hparams.cell_type[1]:
-                                    evaluate_data[file]['audio_updated_states'] = outputs['audio_updated_states'][idx][:self._audio_input_length[file]]
-                                if 'skip' in self._hparams.cell_type[2]:
-                                    evaluate_data[file]['decoder_updated_states'] = outputs['decoder_updated_states'][idx]
                                 
                                 if self._write_estimated_modality_lags is True:
                                     import json
@@ -795,7 +886,7 @@ class AVSR(object):
             # plot_err_vs_seq_len(labels_dict, uer_dict, 'tmp.pdf')
             # mat = compute_uer_confusion_matrix(predictions_dict=predictions_dict, labels_dict=labels_dict, unit_dict=self._unit_dict)
             error_rates[mode] = error_rate
-            if mode == 'evaluateAllData' and self._write_attention_alignment and self._hparams.write_eval_data:
+            if mode == 'evaluateAllData' and self._hparams.write_eval_data:
                 p.dump(evaluate_data, open(f'./eval_data/{self._hparams.experiment_path}/{self._hparams.experiment_name}/eval_data_e{epoch}.p', 'wb'))
         return error_rates
 

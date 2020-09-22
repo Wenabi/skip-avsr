@@ -104,6 +104,7 @@ def run_experiment(
                         labels_test_record=labels_test_record,
                         architecture=architecture,
                         learning_rate=lr[0],
+                        patience=5,
                         **kwargs
                     )
                     experiment.train(
@@ -131,6 +132,7 @@ def run_experiment(
                     labels_test_record=labels_test_record,
                     architecture=architecture,
                     learning_rate=lr[1],
+                    patience=10,
                     **kwargs
                 )
                 experiment.train(

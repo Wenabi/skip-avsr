@@ -6,8 +6,14 @@ from tensorflow.python.layers.core import Dense
 from tensorflow.python.ops import array_ops
 from .attention import add_attention
 from avsr.graph_definition import create_model
+from avsr.skip_rnn_cells import SkipLSTMStateTuple
+from tensorflow.contrib.rnn import MultiRNNCell
+
+
 
 SkipInfoTuple = collections.namedtuple("SkipInfoTuple", ("updated_states", "meanUpdates", "budget_loss"))
+class EncoderData(collections.namedtuple("EncoderData", ("outputs", "final_state"))):
+    pass
 
 class Seq2SeqUnimodalDecoder(object):
     r"""
@@ -41,7 +47,9 @@ class Seq2SeqUnimodalDecoder(object):
         self._labels_len = labels_length
 
         self._hparams = hparams
-
+        
+        self._cell_type = self._hparams.cell_type[2]
+        
         self._mode = mode
 
         self.skip_infos = None
@@ -58,6 +66,10 @@ class Seq2SeqUnimodalDecoder(object):
         self._batch_size, _ = tf.unstack(tf.shape(self._labels))
 
         # create model
+        if 'skip' in self._cell_type:
+            self._skipEncoderOutput()
+            self._cell_type = self._cell_type.replace('skip_', '')
+        
         self._add_special_symbols()
         self._init_embedding()
         self._prepare_attention_memories()
@@ -94,7 +106,73 @@ class Seq2SeqUnimodalDecoder(object):
                     dtype=self._hparams.dtype,
                     trainable=True if self._mode == 'train' else False,
                 )
+    
+    def get_data(self, new_encoder_outputs, new_encoder_final_state):
 
+        def prepare_final_state(state):
+            r"""
+            state is a stack of zero or several RNN cells, followed by a final Attention wrapped RNN cell
+            """
+
+            from tensorflow.contrib.seq2seq.python.ops.attention_wrapper import AttentionWrapperState
+            print('prepare_final_state', state)
+            final_state = []
+            if type(state) is tuple:
+                for cell in state:
+                    if type(cell) == AttentionWrapperState:
+                        final_state.append(cell.cell_state)
+                    else:
+                        print('prepare_final_state_cell', cell)
+                        final_state.append(cell)
+                print('prepare_final_State', final_state)
+                return final_state
+            else:  # only one RNN layer of attention wrapped cells
+                print('prepare_final_state', state.cell_state)
+                return state.cell_state
+
+        return EncoderData(
+            outputs=new_encoder_outputs,
+            final_state=prepare_final_state(new_encoder_final_state)
+        )
+    
+    def _skipEncoderOutput(self):
+        with tf.variable_scope("Decoder") as scope:
+            batch_size = self._hparams.batch_size[0 if self._mode == 'train' else 1]
+        
+            if 'skip' in self._cell_type:
+                pre_decoder_cells, pre_initial_state = build_rnn_layers(
+                    cell_type=self._cell_type,
+                    num_units_per_layer=[self._hparams.decoder_units_per_layer[-1]],
+                    use_dropout=self._hparams.use_dropout,
+                    dropout_probability=self._hparams.decoder_dropout_probability,
+                    mode=self._mode,
+                    batch_size=batch_size,
+                    dtype=self._hparams.dtype,
+                )
+                
+                print('Decoder_pre_decoder_cells',pre_decoder_cells)
+                print('Decoder_pre_initial_state',pre_initial_state)
+                pre_decoder_cells = MultiRNNCell([pre_decoder_cells, ])
+                out = tf.nn.dynamic_rnn(
+                    cell=pre_decoder_cells,
+                    inputs=self._encoder_output.outputs,
+                    sequence_length=self._encoder_features_len,
+                    parallel_iterations=self._hparams.batch_size[0 if self._mode == 'train' else 1],
+                    swap_memory=False,
+                    dtype=self._hparams.dtype,
+                    initial_state=pre_initial_state,
+                    scope=scope
+                )
+                new_encoder_outputs, new_encoder_final_state = out
+                new_encoder_outputs, updated_states = new_encoder_outputs
+                print("Decoder_new_encoder_outputs", new_encoder_outputs)
+                print("Decoder_updated_states", updated_states)
+                cost_per_sample = self._hparams.cost_per_sample
+                budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states, 1), 0)
+                meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states, 1), 0)
+                self.skip_infos = SkipInfoTuple(updated_states, meanUpdates, budget_loss)
+                self._encoder_outputs = self.get_data(new_encoder_outputs, new_encoder_final_state)
+    
     def _init_decoder(self):
         r"""
         Builds the decoder blocks: the cells, the initial state, the output projection layer,
@@ -103,9 +181,9 @@ class Seq2SeqUnimodalDecoder(object):
 
         with tf.variable_scope("Decoder"):
             batch_size = self._hparams.batch_size[0 if self._mode == 'train' else 1]
-            cell_type = self._hparams.cell_type[2]
-            self._decoder_cells, initial_state = build_rnn_layers(
-                cell_type=cell_type,
+            
+            self._decoder_cells, self._initial_state = build_rnn_layers(
+                cell_type=self._cell_type,
                 num_units_per_layer=self._hparams.decoder_units_per_layer,
                 use_dropout=self._hparams.use_dropout,
                 dropout_probability=self._hparams.decoder_dropout_probability,
@@ -113,6 +191,7 @@ class Seq2SeqUnimodalDecoder(object):
                 batch_size=batch_size,
                 dtype=self._hparams.dtype,
             )
+            print('decoder_initial_state_rnn_layers', self._initial_state)
             #self._decoder_cells, self._initial_states = create_model(model=cell_type,
             #                                                   num_cells=self._hparams.decoder_units_per_layer,
             #                                                   batch_size=batch_size,
@@ -166,6 +245,11 @@ class Seq2SeqUnimodalDecoder(object):
                 for j in range(dec_layers - 1):
                     self._decoder_initial_state.append(zero_state[j+1])
                 self._decoder_initial_state = tuple(self._decoder_initial_state)
+        #if 'skip' in self._hparams.cell_type[2]: #TODO Fix for multiple layers
+        #    self._decoder_initial_state = SkipLSTMStateTuple(c=self._decoder_initial_state.c,
+        #                                                     h=self._decoder_initial_state.h,
+        #                                                     update_prob=self._initial_state[0].update_prob,
+        #                                                     cum_update_prob=self._initial_state[0].cum_update_prob)
         print('_decoder_initial_state', self._decoder_initial_state)
 
     def _prepare_attention_memories(self):
@@ -224,7 +308,7 @@ class Seq2SeqUnimodalDecoder(object):
             impute_finished=True,
             swap_memory=False,
             maximum_iterations=self._hparams.max_label_length)
-
+        
         self.inference_outputs = outputs.rnn_output
         
         self.inference_predicted_ids = outputs.sample_id
@@ -236,10 +320,9 @@ class Seq2SeqUnimodalDecoder(object):
         r"""
         Builds a beam search test decoder
         """
-        cell_type = self._hparams.cell_type[2]
         if self._hparams.enable_attention is True:
             cells, initial_state = add_attention(
-                cell_type=cell_type,
+                cell_type=self._cell_type,
                 cells=self._decoder_cells,
                 attention_types=self._hparams.attention_type[1],
                 num_units=self._hparams.decoder_units_per_layer[-1],
@@ -278,13 +361,13 @@ class Seq2SeqUnimodalDecoder(object):
 
         outputs, states, lengths = out
         
-        if "skip" in cell_type:
-            outputs, updated_states = outputs
-            print("Seq2SeqEncoder_updated_states", updated_states)
-            cost_per_sample = self._hparams.cost_per_sample
-            budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states, 1), 0)
-            meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states, 1), 0)
-            self.skip_infos = SkipInfoTuple(updated_states, meanUpdates, budget_loss)
+        #if "skip" in cell_type:
+        #    outputs, updated_states = outputs
+        #    print("Seq2SeqEncoder_updated_states", updated_states)
+        #    cost_per_sample = self._hparams.cost_per_sample
+        #    budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states, 1), 0)
+        #    meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states, 1), 0)
+        #    self.skip_infos = SkipInfoTuple(updated_states, meanUpdates, budget_loss)
         
         if self._hparams.write_attention_alignment is True:
             self.attention_summary, self.attention_alignment = self._create_attention_alignments_summary(states)
@@ -343,9 +426,8 @@ class Seq2SeqUnimodalDecoder(object):
         if self._hparams.enable_attention is True:
             print('_encoder_memory', self._encoder_memory)
             print(self._decoder_initial_state)
-            cell_type = self._hparams.cell_type[2]
             cells, initial_state = add_attention(
-                cell_type=cell_type,
+                cell_type=self._cell_type,
                 cells=self._decoder_cells,
                 attention_types=self._hparams.attention_type[1],
                 num_units=self._hparams.decoder_units_per_layer[-1],
@@ -380,7 +462,7 @@ class Seq2SeqUnimodalDecoder(object):
 
         outputs, fstate, fseqlen = out
 
-        if "skip" in cell_type:
+        if "skip" in self._cell_type:
             outputs, updated_states = outputs
             print("DecoderUnimodal_updated_states", updated_states)
             cost_per_sample = self._hparams.cost_per_sample

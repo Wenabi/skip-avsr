@@ -19,6 +19,9 @@ class Seq2SeqModel(object):
         self.video_skip_infos = None
         self.audio_skip_infos = None
         self.decoder_skip_infos = None
+        self._decoder_skip_infos_video = None
+        self._decoder_skip_infos_audio = None
+        
         self._budget_loss = None
         self._loss_rate = None
         self._reg_loss = None
@@ -135,6 +138,8 @@ class Seq2SeqModel(object):
                 mode=self._mode,
                 hparams=self._hparams
             )
+            self._decoder_skip_infos_video = self._decoder.skip_infos_video
+            self._decoder_skip_infos_audio = self._decoder.skip_infos_audio
         else:
             raise Exception('Unknown architecture')
 
@@ -203,6 +208,10 @@ class Seq2SeqModel(object):
             self._budget_loss += self.video_skip_infos.budget_loss
         if self.decoder_skip_infos is not None:
             self._budget_loss += self.decoder_skip_infos.budget_loss
+        if self._decoder_skip_infos_video is not None:
+            self._budget_loss += self._decoder_skip_infos_video.budget_loss
+        if self._decoder_skip_infos_audio is not None:
+            self._budget_loss += self._decoder_skip_infos_audio.budget_loss
         
         self.batch_loss = self.batch_loss + self._reg_loss
 

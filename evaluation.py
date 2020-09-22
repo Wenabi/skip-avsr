@@ -344,11 +344,11 @@ def boxplotAttentionValues():
 import glob
 video_input_length = p.load(open('./datasets/mvlrs_v1/video_seq_len.p', 'rb'))
 audio_input_length = p.load(open('./datasets/mvlrs_v1/audio_seq_len.p', 'rb'))
-n_list_of_files = glob.glob(f'./eval_data/mvlrs_v1/exp1_att_type_sl/*')
+n_list_of_files = glob.glob(f'./eval_data/mvlrs_v1/av_align/vad/00/131/exp0/mvlrs_v1_av_align_vad_00_131_exp0/*')
 n_latest_file = max(n_list_of_files, key=os.path.getctime)
 eval_data_1 = p.load(open(n_latest_file, 'rb'))
 for key in eval_data_1.keys():
-    data = eval_data_1[key]['encoder_attention_alignment'][:video_input_length[key], :audio_input_length[key], 0]
+    data = eval_data_1[key]['decoder_updated_states'][:audio_input_length[key]]
     print(data.shape)
     print(video_input_length[key])
     print(audio_input_length[key])

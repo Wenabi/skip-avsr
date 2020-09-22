@@ -87,6 +87,7 @@ class Seq2SeqEncoder(object):
                     batch_size=batch_size,
                     dtype=self._hparams.dtype,
                     weight_sharing=self._hparams.encoder_weight_sharing,
+                    as_list=True
                 )
 
                 #self._encoder_cells, initial_states = create_model(model=cell_type,
@@ -98,6 +99,7 @@ class Seq2SeqEncoder(object):
                 #                                                   dropout_probability=self._dropout_probability)
                 
                 print("Seq2Seq_encoder_cells", self._encoder_cells)
+                print("Seq2Seq_initial_state", initial_state)
                 print("Seq2Seq_encoder_encoder_inputs", encoder_inputs)
                 #if "skip" in cell_type:
                 #    if isinstance(self._encoder_cells, list):
@@ -118,9 +120,12 @@ class Seq2SeqEncoder(object):
                 #        initial_state=(initial_state,),
                 #    )
                 #else:
+                self._encoder_cells = maybe_list(self._encoder_cells)
+                self._encoder_cells = maybe_multirnn(self._encoder_cells)
+                initial_state = initial_state if len(self._num_units_per_layer) > 1 else initial_state[0]
                 if cell_type == 'skip_lstm':
                     out = tf.nn.dynamic_rnn(
-                        cell=MultiRNNCell([self._encoder_cells]),
+                        cell=self._encoder_cells,
                         inputs=encoder_inputs,
                         sequence_length=self._inputs_len,
                         parallel_iterations=self._hparams.batch_size[0 if self._mode == 'train' else 1],
@@ -131,13 +136,13 @@ class Seq2SeqEncoder(object):
                     )
                 else:
                     out = tf.nn.dynamic_rnn(
-                        cell=MultiRNNCell([self._encoder_cells]),
+                        cell=self._encoder_cells,
                         inputs=encoder_inputs,
                         sequence_length=self._inputs_len,
                         parallel_iterations=self._hparams.batch_size[0 if self._mode == 'train' else 1],
                         swap_memory=False,
                         dtype=self._hparams.dtype,
-                        initial_state=tuple(initial_state),
+                        initial_state=initial_state,
                         scope=scope,
                     )
 

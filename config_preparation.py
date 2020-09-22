@@ -40,7 +40,7 @@ def createConfig(gpu_num, new_config):
     
 def createConfigs(num_gpus):
     config_list = []
-    for seed in range(3):
+    for seed in range(1):
         dataset = 'mvlrs_v1'
         for architecture in ['av_align', 'bimodal']:
             for cell_type in [['skip_lstm', 'lstm', 'lstm'], ['lstm', 'skip_lstm', 'lstm'], ['lstm', 'lstm', 'skip_lstm'],
@@ -58,4 +58,4 @@ def createConfigs(num_gpus):
         createConfig(x, config_list[i])
     makedirs(path.dirname('./configs/' + config['dataset'] + '/finished/'), exist_ok=True)
         
-createConfigs(8)
+createConfigs(1)

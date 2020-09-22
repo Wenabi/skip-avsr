@@ -1,11 +1,16 @@
 import tensorflow as tf
+import collections
 from tensorflow.contrib import seq2seq
 from .cells import build_rnn_layers
 from tensorflow.python.layers.core import Dense
 from tensorflow.python.ops import array_ops
 from tensorflow.contrib.rnn import LSTMStateTuple
 from .attention import add_attention
+from tensorflow.contrib.rnn import MultiRNNCell
 
+SkipInfoTuple = collections.namedtuple("SkipInfoTuple", ("updated_states", "meanUpdates", "budget_loss"))
+class EncoderData(collections.namedtuple("EncoderData", ("outputs", "final_state"))):
+    pass
 
 class Seq2SeqBimodalDecoder(object):
     def __init__(self,
@@ -29,7 +34,12 @@ class Seq2SeqBimodalDecoder(object):
         self._labels_len = labels_length
         self._hparams = hparams
 
+        self._cell_type = self._hparams.cell_type[2]
+
         self._mode = mode
+
+        self.skip_infos_video = None
+        self.skip_infos_audio = None
 
         reverse_dict = {v: k for k, v in hparams.unit_dict.items()}
 
@@ -44,6 +54,10 @@ class Seq2SeqBimodalDecoder(object):
         self._batch_size, _ = tf.unstack(tf.shape(self._labels))
 
         # create model
+        if 'skip' in self._cell_type:
+            self._skipEncoderOutput()
+            self._cell_type = self._cell_type.replace('skip_','')
+        
         self._infer_num_valid_streams()
 
         self._add_special_symbols()
@@ -91,6 +105,104 @@ class Seq2SeqBimodalDecoder(object):
                     initializer=initialiser
                 )
 
+    def get_data(self, new_encoder_outputs, new_encoder_final_state):
+    
+        def prepare_final_state(state):
+            r"""
+            state is a stack of zero or several RNN cells, followed by a final Attention wrapped RNN cell
+            """
+        
+            from tensorflow.contrib.seq2seq.python.ops.attention_wrapper import AttentionWrapperState
+            print('prepare_final_state', state)
+            final_state = []
+            if type(state) is tuple:
+                for cell in state:
+                    if type(cell) == AttentionWrapperState:
+                        final_state.append(cell.cell_state)
+                    else:
+                        print('prepare_final_state_cell', cell)
+                        final_state.append(cell)
+                print('prepare_final_State', final_state)
+                return final_state
+            else:  # only one RNN layer of attention wrapped cells
+                print('prepare_final_state', state.cell_state)
+                return state.cell_state
+    
+        return EncoderData(
+            outputs=new_encoder_outputs,
+            final_state=prepare_final_state(new_encoder_final_state)
+        )
+
+    def _skipEncoderOutput(self):
+        with tf.variable_scope("Decoder_SkipVideo") as scope:
+            batch_size = self._hparams.batch_size[0 if self._mode == 'train' else 1]
+        
+            pre_decoder_cells, pre_initial_state = build_rnn_layers(
+                cell_type=self._cell_type,
+                num_units_per_layer=[self._hparams.decoder_units_per_layer[-1]],
+                use_dropout=self._hparams.use_dropout,
+                dropout_probability=self._hparams.decoder_dropout_probability,
+                mode=self._mode,
+                batch_size=batch_size,
+                dtype=self._hparams.dtype,
+            )
+        
+            print('Decoder_pre_decoder_cells', pre_decoder_cells)
+            print('Decoder_pre_initial_state', pre_initial_state)
+            pre_decoder_cells = MultiRNNCell([pre_decoder_cells, ])
+            out = tf.nn.dynamic_rnn(
+                cell=pre_decoder_cells,
+                inputs=self._video_output.outputs,
+                sequence_length=self._video_features_len,
+                parallel_iterations=self._hparams.batch_size[0 if self._mode == 'train' else 1],
+                swap_memory=False,
+                dtype=self._hparams.dtype,
+                initial_state=pre_initial_state,
+                scope=scope
+            )
+            new_video_output, new_video_final_state = out
+            new_video_output, updated_states_video = new_video_output
+            print("Decoder_new_video_output", new_video_output)
+            print("Decoder_updated_states_video", updated_states_video)
+            cost_per_sample = self._hparams.cost_per_sample
+            budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states_video, 1), 0)
+            meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states_video, 1), 0)
+            self.skip_infos_video = SkipInfoTuple(updated_states_video, meanUpdates, budget_loss)
+            self._video_output = self.get_data(new_video_output, new_video_final_state)
+        with tf.variable_scope("Decoder_SkipAudio") as scope:
+            pre_decoder_cells, pre_initial_state = build_rnn_layers(
+                cell_type=self._cell_type,
+                num_units_per_layer=[self._hparams.decoder_units_per_layer[-1]],
+                use_dropout=self._hparams.use_dropout,
+                dropout_probability=self._hparams.decoder_dropout_probability,
+                mode=self._mode,
+                batch_size=batch_size,
+                dtype=self._hparams.dtype,
+            )
+
+            print('Decoder_pre_decoder_cells', pre_decoder_cells)
+            print('Decoder_pre_initial_state', pre_initial_state)
+            pre_decoder_cells = MultiRNNCell([pre_decoder_cells, ])
+            out = tf.nn.dynamic_rnn(
+                cell=pre_decoder_cells,
+                inputs=self._audio_output.outputs,
+                sequence_length=self._audio_features_len,
+                parallel_iterations=self._hparams.batch_size[0 if self._mode == 'train' else 1],
+                swap_memory=False,
+                dtype=self._hparams.dtype,
+                initial_state=pre_initial_state,
+                scope=scope
+            )
+            new_audio_output, new_audio_final_state = out
+            new_audio_output, updated_states_audio = new_audio_output
+            print("Decoder_new_audio_output", new_audio_output)
+            print("Decoder_updated_states_audio", updated_states_audio)
+            cost_per_sample = self._hparams.cost_per_sample
+            budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states_audio, 1), 0)
+            meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states_audio, 1), 0)
+            self.skip_infos_audio = SkipInfoTuple(updated_states_audio, meanUpdates, budget_loss)
+            self._audio_output = self.get_data(new_audio_output, new_audio_final_state)
+    
     def _init_decoder(self):
         r"""
                 Instantiates the seq2seq decoder
@@ -98,15 +210,19 @@ class Seq2SeqBimodalDecoder(object):
                 """
 
         with tf.variable_scope("Decoder"):
-
-            self._decoder_cells = build_rnn_layers(
-                cell_type=self._hparams.cell_type[2],
+            batch_size = self._hparams.batch_size[0 if self._mode == 'train' else 1]
+            print('Bimodal_initDecoder_cell_type', self._cell_type)
+            self._decoder_cells, initial_state = build_rnn_layers(
+                cell_type=self._cell_type,
                 num_units_per_layer=self._hparams.decoder_units_per_layer,
                 use_dropout=self._hparams.use_dropout,
                 dropout_probability=self._hparams.decoder_dropout_probability,
                 mode=self._mode,
+                batch_size=batch_size,
                 dtype=self._hparams.dtype,
             )
+            print('Bimodal_decoder_cells', self._decoder_cells)
+            print('Bimodal_initial_state', initial_state)
 
             self._construct_decoder_initial_state()
 
@@ -125,7 +241,7 @@ class Seq2SeqBimodalDecoder(object):
                     raise Exception('The only supported algorithms are `greedy` and `beam_search`')
 
     def _construct_decoder_initial_state(self):
-
+        
         if self._video_output is not None:
             video_state = self._video_output.final_state
         else:
@@ -143,12 +259,12 @@ class Seq2SeqBimodalDecoder(object):
             audio_state = tuple([LSTMStateTuple(c=zero_slice[0], h=zero_slice[1])
                                  for _ in range(len(self._hparams.encoder_units_per_layer))])
 
-        if type(video_state) == tuple:
+        if type(video_state) in [tuple, list]:
             final_video_state = video_state[-1]
         else:
             final_video_state = video_state
 
-        if type(audio_state) == tuple:
+        if type(audio_state) in [tuple, list]:
             final_audio_state = audio_state[-1]
         else:
             final_audio_state = audio_state
@@ -157,7 +273,7 @@ class Seq2SeqBimodalDecoder(object):
 
         self._decoder_initial_state = _project_lstm_state_tuple(
             state_tuple, num_units=self._hparams.decoder_units_per_layer[0])
-
+        
         dec_layers = len(self._hparams.decoder_units_per_layer)
 
         if dec_layers > 1:
@@ -480,7 +596,7 @@ def _get_trainable_vars(cell_type):
 
 
 def _project_lstm_state_tuple(state_tuple, num_units):
-
+    print('project_lstm_state_tuple',state_tuple)
     state_proj_layer = Dense(num_units, name='state_projection', use_bias=False)
 
     cat_c = tf.concat([state.c for state in state_tuple], axis=-1)
@@ -490,5 +606,5 @@ def _project_lstm_state_tuple(state_tuple, num_units):
     proj_h = state_proj_layer(cat_h)
 
     projected_state = tf.contrib.rnn.LSTMStateTuple(c=proj_c, h=proj_h)
-
+    print('project_lstm_state_tuple_projected_state',projected_state)
     return projected_state

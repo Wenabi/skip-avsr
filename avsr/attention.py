@@ -2,6 +2,7 @@ import tensorflow as tf
 from tensorflow.contrib import seq2seq
 from avsr.own_cells import SkipAttentionWrapper
 from tensorflow.contrib.seq2seq import AttentionWrapperState
+from tensorflow.contrib.rnn import LSTMStateTuple
 from avsr.skip_rnn_cells import SkipLSTMStateTuple
 
 def create_attention_mechanism(
@@ -158,6 +159,10 @@ def add_attention(
         attention_cells: the Attention wrapped decoder cells
         initial_state: a proper initial state to be used with the returned cells
     """
+    
+    if 'skip' in cell_type:
+        print('####',memory)
+    
     attention_mechanisms, attention_layers, attention_layer_sizes, output_attention = create_attention_mechanisms(
         beam_search=beam_search,
         beam_width=beam_width,
@@ -213,7 +218,8 @@ def add_attention(
     if initial_state is not None:
         initial_state = attn_zero.clone(
             cell_state=initial_state)
-    print(attention_cells, initial_state)
+    print('attention_return',attention_cells)
+    print('attention_return',initial_state)
     return attention_cells, initial_state
 
 

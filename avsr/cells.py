@@ -128,9 +128,12 @@ def build_rnn_layers(
     initial_state_list = tuple(initial_state_list)
     
     if len(cell_list) == 1:
+        print('build_rnn_layer returning a single cell')
         return cell_list[0], initial_state_list
     else:
         if as_list is False:
+            print('build_rnn_layer returning cells as a SkipMultiRNNCell')
             return SkipMultiRNNCell(cell_list)
         else:
+            print('build_rnn_layer returning cells as list')
             return cell_list, initial_state_list

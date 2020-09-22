@@ -51,9 +51,12 @@ class SkipAttentionWrapper(AttentionWrapper):
     
     @property
     def output_size(self):
+        print('SkipAttentionWrapper_output_size was called')
         if self._output_attention:
+            print('SkipAttentionWrapper_output_size SkipLSTMOutputTuple', self._attention_layer_size)
             return SkipLSTMOutputTuple(self._attention_layer_size, 1)
         else:
+            print('SkipAttentionWrapper_output_size cell output_size', self._cell.output_size)
             return self._cell.output_size
     
     @property
