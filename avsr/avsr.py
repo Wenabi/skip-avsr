@@ -427,25 +427,25 @@ class AVSR(object):
                         loss_rate_list.append(outputs['loss_rate'])
                         budget_loss_list.append(outputs['budget_loss'])
                         if 'skip' in self._hparams.cell_type[0]:
-                            video_update_states_rate.append(np.mean(outputs['video_updated_states']))
+                            video_update_states_rate.append(np.mean(outputs['video_updated_states_rate']))
                             video_state_numbers.append(np.mean(outputs['video_state_number']))
-                            video_update_states.append(np.mean(outputs['video_updated_states_rate']))
+                            video_update_states.append(np.mean(outputs['video_updated_states']))
                         if 'skip' in self._hparams.cell_type[1]:
-                            audio_update_states_rate.append(np.mean(outputs['audio_updated_states']))
+                            audio_update_states_rate.append(np.mean(outputs['audio_updated_states_rate']))
                             audio_state_numbers.append(np.mean(outputs['audio_state_number']))
-                            audio_update_states.append(np.mean(outputs['audio_updated_states_rate']))
+                            audio_update_states.append(np.mean(outputs['video_updated_states']))
                         if 'skip' in self._hparams.cell_type[2]:
                             if self._hparams.architecture == 'av_align':
-                                decoder_update_states_rate.append(np.mean(outputs['decoder_updated_states']))
+                                decoder_update_states_rate.append(np.mean(outputs['decoder_updated_states_rate']))
                                 decoder_state_numbers.append(np.mean(outputs['decoder_state_number']))
-                                decoder_update_states.append(np.mean(outputs['decoder_updated_states_rate']))
+                                decoder_update_states.append(np.mean(outputs['decoder_updated_states']))
                             elif self._hparams.architecture == 'bimodal':
-                                decoder_update_states_rate_video.append(np.mean(outputs['decoder_updated_states_video']))
+                                decoder_update_states_rate_video.append(np.mean(outputs['decoder_updated_states_rate_video']))
                                 decoder_state_numbers_video.append(np.mean(outputs['decoder_state_number_video']))
-                                decoder_update_states_video.append(np.mean(outputs['decoder_updated_states_rate_video']))
-                                decoder_update_states_rate_audio.append(np.mean(outputs['decoder_updated_states_audio']))
+                                decoder_update_states_video.append(np.mean(outputs['decoder_updated_states_video']))
+                                decoder_update_states_rate_audio.append(np.mean(outputs['decoder_updated_states_rate_audio']))
                                 decoder_state_numbers_audio.append(np.mean(outputs['decoder_state_number_audio']))
-                                decoder_update_states_audio.append(np.mean(outputs['decoder_updated_states_rate_audio']))
+                                decoder_update_states_audio.append(np.mean(outputs['decoder_updated_states_audio']))
                                 
                         if self._hparams.profiling is True:
                             self.profiler.add_step(batches, self.run_meta)
