@@ -955,7 +955,7 @@ class AVSR(object):
 
     def _create_sessions(self):
         config = tf.ConfigProto(allow_soft_placement=True)
-        #config.gpu_options.allow_growth=True
+        config.gpu_options.allow_growth=True
         if 'train' in self._required_graphs:
             self._train_session = tf.Session(graph=self._train_graph, config=config)
             self._valLoss_session = tf.Session(graph=self._valLoss_graph, config=config)

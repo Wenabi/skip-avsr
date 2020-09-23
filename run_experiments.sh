@@ -1,13 +1,12 @@
-SESSION=skip-avsr
+#!/bin/bash
+SESSION='skip-avsr'
 dataset='mvlrs_v1'
-num_gpus=8
 tmux new-session -d -s $SESSION
-counter=1
-while [ $counter -le $num_gpus ]
+
+counter=0
+while [ $counter -le 7 ]
 do
-  tmux new-window -t $SESSION:$counter -n 'gpu_'$counter
-  tmux send-keys 'python experiment_lrs2.py -d '$dataset' -g '$counter C-m
+  tmux new-window -t $SESSION:$((counter + 1)) -n 'gpu_'$counter;
+  tmux send-keys 'python3 experiment_lrs2.py -d '$dataset' -g '$counter C-m;
   ((counter++))
 done
-
-tmux attach -t $SESSION

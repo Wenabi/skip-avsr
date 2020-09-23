@@ -57,4 +57,4 @@ def createConfigs(num_gpus):
         createConfig(x, config_list[i])
     makedirs(path.dirname('./configs/' + config['dataset'] + '/finished/'), exist_ok=True)
         
-createConfigs(1)
+createConfigs(8)
