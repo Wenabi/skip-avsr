@@ -40,11 +40,10 @@ def createConfig(gpu_num, new_config):
     
 def createConfigs(num_gpus):
     config_list = []
-    for seed in range(1):
+    for seed in range(3):
         dataset = 'mvlrs_v1'
-        for architecture in ['av_align', 'bimodal']:
-            for cell_type in [['skip_lstm', 'lstm', 'lstm'], ['lstm', 'skip_lstm', 'lstm'], ['lstm', 'lstm', 'skip_lstm'],
-                              ['skip_lstm', 'skip_lstm', 'skip_lstm']]:
+        for architecture in ['av_align']:
+            for cell_type in [['skip_lstm', 'lstm', 'lstm'], ['lstm', 'skip_lstm', 'lstm'], ['lstm', 'lstm', 'skip_lstm']]:
                 for cost_per_sample in [0.0, 0.00001, 0.0001, 0.001, 0.01]:
                     config = {'seed':seed,
                               'dataset':dataset,
