@@ -1,8 +1,10 @@
 import os
 import sys
 import json
-from pprint import pprint
+import time
+import datetime
 from avsr import run_experiment
+from os import path
 
 #os.environ['CUDA_VISIBLE_DEVICES'] = "0"
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = "2"  # ERROR
@@ -95,5 +97,11 @@ if __name__ == '__main__':
     for config_file in os.listdir('./configs/'+argv['-d']+'/gpu_'+argv['-g']+'/'):
         print(config_file)
         config = json.load(open('./configs/'+argv['-d']+'/gpu_'+argv['-g']+'/'+config_file, 'r'))
+        start = time.time()
         main(config)
+        end = time.time()
+        
+        full_logfile = path.join('./logs', config['experiment_path'] + config['experiment_name'])
+        with open(full_logfile, 'a') as f:
+            f.write('Experiment Time-'+ + str(datetime.timedelta(seconds=int(end-start))) + '\n')
         os.rename('./configs/'+argv['-d']+'/gpu_'+argv['-g']+'/'+config_file, './configs/'+argv['-d']+'/finished/'+config_file)
