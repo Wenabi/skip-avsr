@@ -103,5 +103,5 @@ if __name__ == '__main__':
         
         full_logfile = path.join('./logs', config['experiment_path'] + config['experiment_name'])
         with open(full_logfile, 'a') as f:
-            f.write('Experiment Time-'+ + str(datetime.timedelta(seconds=int(end-start))) + '\n')
+            f.write('Experiment Time-' + str(datetime.timedelta(seconds=int(end-start))) + '\n')
         os.rename('./configs/'+argv['-d']+'/gpu_'+argv['-g']+'/'+config_file, './configs/'+argv['-d']+'/finished/'+config_file)

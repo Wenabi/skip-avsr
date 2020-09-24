@@ -305,10 +305,10 @@ class AVSR(object):
         if len(loss_diff_list) < self._hparams.patience:
             f = open(logfile, 'a')
             num_epochs = last_epoch+num_epochs if num_epochs <100 else num_epochs
-            print(last_epoch+1, num_epochs)
+            print(last_epoch+1, num_epochs, self._hparams.experiment_name)
             for current_epoch in range(last_epoch+1, num_epochs):
                 epoch = current_epoch
-                print(f'Epoch: {epoch}')
+                print(f'Epoch: {epoch}', self._hparams.experiment_name)
                 self._train_session.run([stream.iterator_initializer for stream in self._train_model.data
                                          if stream is not None])
                 sum_loss = 0
@@ -433,7 +433,7 @@ class AVSR(object):
                         if 'skip' in self._hparams.cell_type[1]:
                             audio_update_states_rate.append(np.mean(outputs['audio_updated_states_rate']))
                             audio_state_numbers.append(np.mean(outputs['audio_state_number']))
-                            audio_update_states.append(np.mean(outputs['video_updated_states']))
+                            audio_update_states.append(np.mean(outputs['audio_updated_states']))
                         if 'skip' in self._hparams.cell_type[2]:
                             if self._hparams.architecture == 'av_align':
                                 decoder_update_states_rate.append(np.mean(outputs['decoder_updated_states_rate']))
