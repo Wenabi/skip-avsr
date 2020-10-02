@@ -151,7 +151,8 @@ class Seq2SeqEncoder(object):
                 if "skip" in cell_type:
                     self._encoder_outputs, updated_states = self._encoder_outputs
                     print("Seq2SeqEncoder_updated_states", updated_states)
-                    cost_per_sample = self._hparams.cost_per_sample
+                    cost_per_sample = self._hparams.cost_per_sample[0] if self._data_type == 'video' \
+                        else self._hparams.cost_per_sample[1]
                     budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states, 1), 0)
                     meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states, 1), 0)
                     self.skip_infos = SkipInfoTuple(updated_states, meanUpdates, budget_loss)
@@ -365,7 +366,7 @@ class AttentiveEncoder(Seq2SeqEncoder):
                     skip_output, skip_final_state = skip_out
                     h, updated_states = skip_output
                     print('skip_encoder_updated_states', updated_states)
-                    cost_per_sample = self._hparams.cost_per_sample
+                    cost_per_sample = self._hparams.cost_per_sample[1]
                     budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states, 1), 0)
                     meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states, 1), 0)
                     self.skip_infos = SkipInfoTuple(updated_states, meanUpdates, budget_loss)
@@ -445,7 +446,7 @@ class AttentiveEncoder(Seq2SeqEncoder):
                 
                 if not self._hparams.separate_skip_rnn and 'skip' in cell_type:
                     self._encoder_outputs, updated_states = self._encoder_outputs
-                    cost_per_sample = self._hparams.cost_per_sample
+                    cost_per_sample = self._hparams.cost_per_sample[1]
                     budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states, 1), 0)
                     meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states, 1), 0)
                     self.skip_infos = SkipInfoTuple(updated_states, meanUpdates, budget_loss)

@@ -80,7 +80,7 @@ class AVSR(object):
                  precision='float32',
                  profiling=False,
                  required_grahps=('train', 'eval'),
-                 cost_per_sample=0.0,
+                 cost_per_sample=[0.0, 0.0, 0.0],
                  experiment_name=None,
                  experiment_path=None,
                  dataset_name=None,
@@ -88,6 +88,7 @@ class AVSR(object):
                  separate_skip_rnn=False,
                  write_summary=False,
                  write_eval_data=False,
+                 set_data_null='',
                  **kwargs,
                  ):
         r"""
@@ -224,6 +225,7 @@ class AVSR(object):
             separate_skip_rnn=separate_skip_rnn,
             write_summary=write_summary,
             write_eval_data=write_eval_data,
+            set_data_null=set_data_null,
             kwargs=kwargs,
         )
         
@@ -1116,12 +1118,13 @@ class AVSR(object):
 
                 audio_data = self._parse_iterator(audio_iterator)
         print('fetch_data_mode', mode)
+        print('fetch_data_mode', mode)
         print('fetch_data_video_data', video_data)
         print('fetch_data_audio_data', audio_data)
-        if mode == 'evaluateVideo' or mode == 'evaluateNoData':
+        if mode == 'evaluateVideo' or mode == 'evaluateNoData' or self._hparams.set_data_null == 'audio':
             #audio_data = audio_data._replace(inputs=tf.zeros_like(audio_data.inputs))
             audio_data = audio_data._replace(inputs=tf.zeros(shape=tf.shape(audio_data.inputs), dtype=self._hparams.dtype))
-        if mode == 'evaluateAudio' or mode == 'evaluateNoData':
+        if mode == 'evaluateAudio' or mode == 'evaluateNoData' or self._hparams.set_data_null == 'video':
             #video_data = video_data._replace(inputs=tf.zeros_like(video_data.inputs))
             video_data = video_data._replace(inputs=tf.zeros(shape=tf.shape(video_data.inputs), dtype=self._hparams.dtype))
         print('fetch_data_video_data', video_data)

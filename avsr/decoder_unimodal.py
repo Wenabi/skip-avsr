@@ -167,7 +167,7 @@ class Seq2SeqUnimodalDecoder(object):
                 new_encoder_outputs, updated_states = new_encoder_outputs
                 print("Decoder_new_encoder_outputs", new_encoder_outputs)
                 print("Decoder_updated_states", updated_states)
-                cost_per_sample = self._hparams.cost_per_sample
+                cost_per_sample = self._hparams.cost_per_sample[2]
                 budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states, 1), 0)
                 meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states, 1), 0)
                 self.skip_infos = SkipInfoTuple(updated_states, meanUpdates, budget_loss)
@@ -465,7 +465,7 @@ class Seq2SeqUnimodalDecoder(object):
         if "skip" in self._cell_type:
             outputs, updated_states = outputs
             print("DecoderUnimodal_updated_states", updated_states)
-            cost_per_sample = self._hparams.cost_per_sample
+            cost_per_sample = self._hparams.cost_per_sample[2]
             budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states, 1), 0)
             meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states, 1), 0)
             self.skip_infos = SkipInfoTuple(updated_states, meanUpdates, budget_loss)

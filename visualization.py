@@ -1,5 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import os
+import glob
+import seaborn as sns
+import pandas as pd
 
 def hinton(matrix, savepath, max_weight=None, ax=None):
     """Draw Hinton diagram for visualizing a weight matrix."""
@@ -178,4 +182,70 @@ def visualize_multiple_exp():
         plt.ylim(0, 100)
         plt.show()
                     
-visualize_multiple_exp()
+def visualizeExperimentsBubble():
+    movedpath = 'first experiment/'
+    path = './logs/mvlrs_v1/'+movedpath+'av_align/'
+    for skip_layer in os.listdir(path):
+        if skip_layer != 'n':
+            data = []
+            for i,cps in enumerate(os.listdir(path+skip_layer)):
+                for layer_sizes in os.listdir(path+skip_layer+'/'+cps):
+                    for exp in os.listdir(path+skip_layer+'/'+cps+'/'+layer_sizes):
+                        file_path = path+skip_layer+'/'+cps+'/'+layer_sizes+'/'+exp
+                        file = file_path.replace(movedpath,'').replace('/','_').replace('._logs_','')
+                        file_path += '/'+file
+                        with open(file_path, 'r') as f:
+                            lines = f.read().splitlines()
+                            error_rates = []
+                            updated_states_rates = []
+                            for line in lines:
+                                if 'error_rate' in line and not 'train' in line:
+                                    error_rate = float(line.split(' ')[1].replace('%',''))
+                                    error_rates.append(error_rate)
+                                if 'Updated_States_Rate' in line:
+                                    usr = line.split(' ')[0].split(':')[1]
+                                    updated_states_rates.append(float(usr)*100)
+                            data.append([cps, error_rates[-1], 'error_rate'])
+                            data.append([cps, updated_states_rates[-1], 'update_rate'])
+            df = pd.DataFrame(data, columns=['cost_per_sample','value','value_type'])
+            fig, ax = plt.subplots()
+            plt.title(skip_layer)
+            box_plot = sns.boxplot(y='value', x='cost_per_sample',data=df,palette='colorblind', hue='value_type', ax=ax)
+
+            for i, artist in enumerate(ax.artists):
+                # Set the linecolor on the artist to the facecolor, and set the facecolor to None
+                col = artist.get_facecolor()
+                artist.set_edgecolor(col)
+                artist.set_facecolor('None')
+    
+                # Each box has 6 associated Line2D objects (to make the whiskers, fliers, etc.)
+                # Loop over them here, and use the same colour as above
+                for j in range(i * 6, i * 6 + 6):
+                    line = ax.lines[j]
+                    line.set_color(col)
+                    line.set_mfc(col)
+                    line.set_mec(col)
+
+            # Also fix the legend
+            for legpatch in ax.get_legend().get_patches():
+                col = legpatch.get_facecolor()
+                legpatch.set_edgecolor(col)
+                legpatch.set_facecolor('None')
+            
+            #c = 1
+            #x_ticks = []
+            #for res in results:
+            #    bp = ax.boxplot(res, positions=[c,c+1], widths=0.6)
+            #    x_ticks.append(c+0.5)
+            #    c += 2
+            #plt.xticks(x_ticks, x)
+            #for xe, ze in zip(x, z):
+            #    ax.scatter([xe]*len(ze), ze)
+            #for i, txt in enumerate(y):
+            #    #ax.text(x[i][0],z[i][0], str(txt)[:5])
+            #    ax.annotate(str(txt)[:5] , (x[i],z[i][0]))
+            plt.show()
+                        
+        
+
+visualizeExperimentsBubble()

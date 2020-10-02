@@ -340,18 +340,19 @@ def boxplotAttentionValues():
     fig, ax = plt.subplots()
     ax.boxplot(data)
     plt.show()
-
-import glob
-video_input_length = p.load(open('./datasets/mvlrs_v1/video_seq_len.p', 'rb'))
-audio_input_length = p.load(open('./datasets/mvlrs_v1/audio_seq_len.p', 'rb'))
-n_list_of_files = glob.glob(f'./eval_data/mvlrs_v1/av_align/vad/00/131/exp0/mvlrs_v1_av_align_vad_00_131_exp0/*')
-n_latest_file = max(n_list_of_files, key=os.path.getctime)
-eval_data_1 = p.load(open(n_latest_file, 'rb'))
-for key in eval_data_1.keys():
-    data = eval_data_1[key]['decoder_updated_states'][:audio_input_length[key]]
-    print(data.shape)
-    print(video_input_length[key])
-    print(audio_input_length[key])
-    print(np.sum(data, (0)))
-    plt.imshow(data)
-    plt.show()
+    
+def test13():
+    import glob
+    video_input_length = p.load(open('./datasets/mvlrs_v1/video_seq_len.p', 'rb'))
+    audio_input_length = p.load(open('./datasets/mvlrs_v1/audio_seq_len.p', 'rb'))
+    n_list_of_files = glob.glob(f'./eval_data/mvlrs_v1/av_align/vad/00/131/exp0/mvlrs_v1_av_align_vad_00_131_exp0/*')
+    n_latest_file = max(n_list_of_files, key=os.path.getctime)
+    eval_data_1 = p.load(open(n_latest_file, 'rb'))
+    for key in eval_data_1.keys():
+        data = eval_data_1[key]['decoder_updated_states'][:audio_input_length[key]]
+        print(data.shape)
+        print(video_input_length[key])
+        print(audio_input_length[key])
+        print(np.sum(data, (0)))
+        plt.imshow(data)
+        plt.show()
