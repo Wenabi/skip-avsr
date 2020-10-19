@@ -12,7 +12,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = "2"  # ERROR
 
 def main(config):
     dataset_name = config['dataset']
-    tfrecords_path = 'N:/datasets/'+dataset_name+'/tfrecords/' #N:
+    tfrecords_path = './datasets/'+dataset_name+'/tfrecords/' #N:
     
     video_train_record = tfrecords_path +'rgb36lips_train.tfrecord'
     video_trainTest_record = tfrecords_path +'rgb36lips_trainTest.tfrecord'
@@ -20,7 +20,7 @@ def main(config):
     labels_train_record = tfrecords_path +'characters_train.tfrecord'
     labels_trainTest_record = tfrecords_path +'characters_trainTest.tfrecord'
     labels_test_record = tfrecords_path +'characters_test.tfrecord'
-    unit_list_file = 'F:/Documents/datasets/'+dataset_name+'/misc/character_list' #F:/Documents
+    unit_list_file = './datasets/'+dataset_name+'/misc/character_list' #F:/Documents
 
     audio_train_records = (
         tfrecords_path +'logmel_train_clean.tfrecord',
