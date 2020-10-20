@@ -675,8 +675,8 @@ class AVSR(object):
                     if self._hparams.architecture == 'av_align':
                         session_dict['decoder_updated_states'] = evaluate_model.model.decoder_skip_infos.updated_states
                     elif self._hparams.architecture == 'bimodal':
-                        session_dict['decoder_updated_states_video'] = evaluate_model.model.decoder_skip_infos_video.updated_states
-                        session_dict['decoder_updated_states_audio'] = evaluate_model.model.decoder_skip_infos_audio.updated_states
+                        session_dict['decoder_updated_states_video'] = evaluate_model.model._decoder_skip_infos_video.updated_states
+                        session_dict['decoder_updated_states_audio'] = evaluate_model.model._decoder_skip_infos_audio.updated_states
             
                 if self._write_attention_alignment is True:
                     session_dict['decoder_attention_summary'] = evaluate_model.model._decoder.attention_summary
