@@ -441,7 +441,7 @@ class Seq2SeqBimodalDecoder(object):
         self.inference_predicted_ids = outputs.sample_id
 
         if self._hparams.write_attention_alignment is True:
-            self.attention_summary = self._create_attention_alignments_summary(states)
+            self.attention_summary, self.attention_alignment = self._create_attention_alignments_summary(states)
 
     def _build_decoder_beam_search(self):
 
@@ -491,7 +491,7 @@ class Seq2SeqBimodalDecoder(object):
             swap_memory=False)
 
         if self._hparams.write_attention_alignment is True:
-            self.attention_summary = self._create_attention_alignments_summary(states)
+            self.attention_summary, self.attention_alignment = self._create_attention_alignments_summary(states)
 
         self.inference_outputs = outputs.beam_search_decoder_output
         self.inference_predicted_ids = outputs.predicted_ids[:, :, 0]  # return the first beam
@@ -582,7 +582,7 @@ class Seq2SeqBimodalDecoder(object):
         audio_summary = tf.summary.image("audio_images", audio_images_scaled,
                                          max_outputs=self._hparams.batch_size[1])
 
-        return video_summary, audio_summary
+        return [video_summary, audio_summary], [video_alignment, audio_alignment]
 
     def get_predictions(self):
         return self.inference_predicted_ids
