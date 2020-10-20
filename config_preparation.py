@@ -20,7 +20,7 @@ def createConfig(gpu_num, new_config):
               'encoder_units_per_layer': [(256,), (256,256,256)],
               'decoder_units_per_layer': (256,),
               'batch_size': (48, 48),
-              'iterations': (0, 0),
+              'iterations': (500, 100),
               'learning_rate': (0.001, 0.0001),
               'max_label_length': 100,  # LRS3 150, LRS2 100
               'write_summary': False,

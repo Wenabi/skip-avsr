@@ -359,12 +359,12 @@ class AVSR(object):
                         decoder_update_states_audio = []
                         decoder_state_numbers_audio = []
 
-                        us_v = self._train_model.model.decoder_skip_infos_video.updated_states
+                        us_v = self._train_model.model._decoder_skip_infos_video.updated_states
                         d_us_v = tf.reduce_sum(us_v, 1)
                         d_s_number_v = tf.reshape(self._video_input_length, (-1, 1))
                         d_us_rate_v = tf.divide(d_us_v, tf.cast(d_s_number_v, tf.float32))
 
-                        us_a = self._train_model.model.decoder_skip_infos_audio.updated_states
+                        us_a = self._train_model.model._decoder_skip_infos_audio.updated_states
                         d_us_a = tf.reduce_sum(us_a, 1)
                         d_s_number_a = tf.reshape(self._audio_input_length, (-1, 1))
                         d_us_rate_a = tf.divide(d_us_a, tf.cast(d_s_number_a, tf.float32))
