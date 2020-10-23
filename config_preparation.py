@@ -48,9 +48,9 @@ def createConfigs(num_gpus):
     config_list = []
     for seed in range(3):
         dataset = 'mvlrs_v1'
-        for architecture in ['bimodal']:
-            for cell_type in [['skip_lstm', 'lstm', 'lstm'], ['lstm', 'skip_lstm', 'lstm'], ['lstm','lstm','skip_lstm']]:
-                for cps in [0.0, 0.01, 0.001, 0.0001, 0.00001]:
+        for architecture in ['av_align']:
+            for cell_type in [['lstm','lstm','skip_lstm']]:
+                for cps in [0.001, 0.0001, 0.00001]:
                     config = {'seed':seed,
                               'dataset':dataset,
                               'architecture':architecture,
@@ -63,5 +63,23 @@ def createConfigs(num_gpus):
         x = i%num_gpus
         createConfig(x, config_list[i])
     makedirs(path.dirname('./configs/' + config['dataset'] + '/finished/'), exist_ok=True)
-        
-createConfigs(8)
+    
+def createConfigsTest(num_gpus):
+    config_list = []
+    dataset = 'mvlrs_v1'
+    architecture = 'av_align'
+    cell_type = ['lstm','lstm','skip_lstm']
+    cps = [0.0, 0.0, 0.0]
+    config = {'seed':0,
+              'dataset':dataset,
+              'architecture':architecture,
+              'cell_type':cell_type,
+              'cost_per_sample':cps,
+              'set_data_null':''}
+    config_list.append(config)
+    for i in range(len(config_list)):
+        x = i%num_gpus
+        createConfig(x, config_list[i])
+    makedirs(path.dirname('./configs/' + config['dataset'] + '/finished/'), exist_ok=True)
+    
+createConfigs(7)
