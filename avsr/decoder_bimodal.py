@@ -197,7 +197,7 @@ class Seq2SeqBimodalDecoder(object):
             new_audio_output, updated_states_audio = new_audio_output
             print("Decoder_new_audio_output", new_audio_output)
             print("Decoder_updated_states_audio", updated_states_audio)
-            cost_per_sample = self._hparams.cost_per_sample[2]
+            cost_per_sample = self._hparams.cost_per_sample[3]
             budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states_audio, 1), 0)
             meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states_audio, 1), 0)
             self.skip_infos_audio = SkipInfoTuple(updated_states_audio, meanUpdates, budget_loss)
