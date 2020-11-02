@@ -616,6 +616,9 @@ class AVSR(object):
                  alignments_outdir='./alignments/tmp/',
                  beam_graphs_outdir='./beam_graphs/tmp/',
                  ):
+        if self._hparams.write_eval_data:
+            makedirs(
+                path.dirname(f'./eval_data/{self._hparams.experiment_path}/{self._hparams.experiment_name}/'), exist_ok=True)
         error_rates = {}
         
         for mode in modes:#'evaluateAudio', 'evaluateVideo', 'evaluateNoData'
@@ -644,7 +647,7 @@ class AVSR(object):
                 sess=sess,
                 save_path=checkpoint_path
             )
-            
+
             sess.run([stream.iterator_initializer for stream in evaluate_model.data
                       if stream is not None])
             predictions_dict = {}
@@ -656,7 +659,7 @@ class AVSR(object):
                 data = evaluate_model.data[1]
             else:
                 raise ValueError('At least one of A/V streams must be enabled')
-            
+
             session_dict = {
                 'predicted_ids': evaluate_model.model._decoder.inference_predicted_ids,
                 'labels': data.labels,
@@ -669,14 +672,19 @@ class AVSR(object):
             if mode == 'evaluateAllData':
                 if 'skip' in self._hparams.cell_type[0]:
                     session_dict['video_updated_states'] = evaluate_model.model.video_skip_infos.updated_states
+                    session_dict['video_inputs_lengths'] = evaluate_model.data[0].inputs_length
                 if 'skip' in self._hparams.cell_type[1]:
                     session_dict['audio_updated_states'] = evaluate_model.model.audio_skip_infos.updated_states
+                    session_dict['audio_inputs_lengths'] = evaluate_model.data[1].inputs_length
                 if 'skip' in self._hparams.cell_type[2]:
                     if self._hparams.architecture == 'av_align':
                         session_dict['decoder_updated_states'] = evaluate_model.model.decoder_skip_infos.updated_states
+                        session_dict['audio_inputs_lengths'] = evaluate_model.data[1].inputs_length
                     elif self._hparams.architecture == 'bimodal':
                         session_dict['decoder_updated_states_video'] = evaluate_model.model._decoder_skip_infos_video.updated_states
                         session_dict['decoder_updated_states_audio'] = evaluate_model.model._decoder_skip_infos_audio.updated_states
+                        session_dict['video_inputs_lengths'] = evaluate_model.data[0].inputs_length
+                        session_dict['audio_inputs_lengths'] = evaluate_model.data[1].inputs_length
             
                 if self._write_attention_alignment is True:
                     session_dict['decoder_attention_summary'] = evaluate_model.model._decoder.attention_summary
@@ -748,17 +756,17 @@ class AVSR(object):
                             if self._hparams.architecture == 'av_align':
                                 if 'skip' in self._hparams.cell_type[0]:
                                     evaluate_data[file]['video_updated_states'] = outputs['video_updated_states'][idx][
-                                                                                  :self._video_input_length[file]]
+                                                                                  :outputs['video_inputs_lengths'][idx]]
                                 if 'skip' in self._hparams.cell_type[1]:
                                     evaluate_data[file]['audio_updated_states'] = outputs['audio_updated_states'][idx][
-                                                                                  :self._audio_input_length[file]]
+                                                                                  :outputs['audio_inputs_lengths'][idx]]
                                 if 'skip' in self._hparams.cell_type[2]:
                                     evaluate_data[file]['decoder_updated_states'] = outputs['decoder_updated_states'][
-                                        idx]
+                                        idx][:outputs['audio_inputs_lengths'][idx]]
                             elif self._hparams.architecture == 'bimodal':
                                 if 'skip' in self._hparams.cell_type[2]:
-                                    evaluate_data[file]['decoder_updated_states_video'] = outputs['decoder_updated_states_video'][idx]
-                                    evaluate_data[file]['decoder_updated_states_audio'] = outputs['decoder_updated_states_audio'][idx]
+                                    evaluate_data[file]['decoder_updated_states_video'] = outputs['decoder_updated_states_video'][idx][:outputs['video_inputs_lengths'][idx]]
+                                    evaluate_data[file]['decoder_updated_states_audio'] = outputs['decoder_updated_states_audio'][idx][:outputs['audio_inputs_lengths'][idx]]
                         
                         if self._write_attention_alignment is True and mode == 'evaluateAllData':
     

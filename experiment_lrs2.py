@@ -3,6 +3,7 @@ import sys
 import json
 import time
 import datetime
+import pickle as p
 from avsr import run_experiment
 from os import path
 
@@ -10,9 +11,9 @@ from os import path
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = "2"  # ERROR
 
 
-def main(config):
+def main(config, mode='train'):
     dataset_name = config['dataset']
-    tfrecords_path = './datasets/'+dataset_name+'/tfrecords/' #N:
+    tfrecords_path = 'N:/datasets/'+dataset_name+'/tfrecords/' #N:
     
     video_train_record = tfrecords_path +'rgb36lips_train.tfrecord'
     video_trainTest_record = tfrecords_path +'rgb36lips_trainTest.tfrecord'
@@ -20,7 +21,7 @@ def main(config):
     labels_train_record = tfrecords_path +'characters_train.tfrecord'
     labels_trainTest_record = tfrecords_path +'characters_trainTest.tfrecord'
     labels_test_record = tfrecords_path +'characters_test.tfrecord'
-    unit_list_file = './datasets/'+dataset_name+'/misc/character_list' #F:/Documents
+    unit_list_file = 'F:/Documents/datasets/'+dataset_name+'/misc/character_list' #F:/Documents
 
     audio_train_records = (
         tfrecords_path +'logmel_train_clean.tfrecord',
@@ -57,7 +58,6 @@ def main(config):
         #(0.0005, 0.0001)   # -5db   (0.001, 0.0001)
     )
 
-
     run_experiment(
         video_train_record=video_train_record,
         video_trainTest_record=video_trainTest_record,
@@ -84,7 +84,9 @@ def main(config):
         max_label_length=config['max_label_length'],
         decoder_units_per_layer=config['decoder_units_per_layer'],
         write_summary=config['write_summary'],
+        write_eval_data=False if mode == 'train' else True,
         set_data_null=config['set_data_null'],
+        mode=mode,
     )
 
 if __name__ == '__main__':
@@ -93,15 +95,30 @@ if __name__ == '__main__':
     if len(argv) == 0:
         argv['-g'] = '0'
         argv['-d'] = 'mvlrs_v1'
-    os.environ['CUDA_VISIBLE_DEVICES'] = argv['-g']
-    dataset, gpu_num = None, None
-    for config_file in os.listdir('./configs/'+argv['-d']+'/gpu_'+argv['-g']+'/'):
-        print(config_file)
-        config = json.load(open('./configs/'+argv['-d']+'/gpu_'+argv['-g']+'/'+config_file, 'r'))
-        full_logfile = path.join('./logs', config['experiment_path'] + config['experiment_name'])
-        with open(full_logfile, 'a') as f:
-            f.write('Experiment Start:' + str(time.time()) + '\n')
-        main(config)
-        with open(full_logfile, 'a') as f:
-            f.write('Experiment End:' + str(time.time()) + '\n')
-        os.rename('./configs/'+argv['-d']+'/gpu_'+argv['-g']+'/'+config_file, './configs/'+argv['-d']+'/finished/'+config_file)
+        argv['-m'] = 'train'
+    if argv['-m'] == 'train':
+        os.environ['CUDA_VISIBLE_DEVICES'] = argv['-g']
+        dataset, gpu_num = None, None
+        for config_file in os.listdir('./configs/'+argv['-d']+'/gpu_'+argv['-g']+'/'):
+            print(config_file)
+            config = json.load(open('./configs/'+argv['-d']+'/gpu_'+argv['-g']+'/'+config_file, 'r'))
+            full_logfile = path.join('./logs', config['experiment_path'] + config['experiment_name'])
+            with open(full_logfile, 'a') as f:
+                f.write('Experiment Start:' + str(time.time()) + '\n')
+            main(config)
+            with open(full_logfile, 'a') as f:
+                f.write('Experiment End:' + str(time.time()) + '\n')
+            os.rename('./configs/'+argv['-d']+'/gpu_'+argv['-g']+'/'+config_file, './configs/'+argv['-d']+'/finished/'+config_file)
+    elif argv['-m'] == 'evaluate':
+        os.environ['CUDA_VISIBLE_DEVICES'] = argv['-g']
+        dataset, gpu_num = None, None
+        for config_file in os.listdir('./configs/' + argv['-d'] + '/evaluate/gpu_' + argv['-g'] + '/'):
+            print(config_file)
+            config = json.load(open('./configs/' + argv['-d'] + '/evaluate/gpu_' + argv['-g'] + '/' + config_file, 'r'))
+            full_logfile = path.join('./logs', config['experiment_path'] + config['experiment_name'])
+            main(config, 'evaluate')
+            os.rename('./configs/' + argv['-d'] + '/evaluate/gpu_' + argv['-g'] + '/' + config_file,
+                      './configs/' + argv['-d'] + '/evaluate/finished/' + config_file)
+            eval_data = p.load(open(f'./eval_data/{config["experiment_path"]}/{config["experiment_name"]}/eval_data_e1111.p', 'rb'))
+            print(eval_data.keys())
+        

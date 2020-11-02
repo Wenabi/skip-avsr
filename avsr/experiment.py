@@ -1,5 +1,6 @@
 from avsr import AVSR
 from os import path, listdir
+import tensorflow as tf
 
 
 def run_experiment(
@@ -20,8 +21,10 @@ def run_experiment(
         logfile='tmp_experiment',
         warmup_epochs=0,
         warmup_max_len=0,
+        mode='train',
+        experiment_path=None,
         **kwargs):
-
+    print(mode)
     if architecture == 'unimodal':
         video_processing = None
     else:
@@ -31,7 +34,7 @@ def run_experiment(
     print('full_logfile', full_logfile)
 
     ## warmup on short sentences
-    if warmup_epochs > 1:
+    if warmup_epochs > 1 and mode == 'train':
         experiment = AVSR(
             unit=unit,
             unit_file=unit_list_file,
@@ -49,6 +52,7 @@ def run_experiment(
             architecture=architecture,
             learning_rate=learning_rates[0][0],
             max_sentence_length=warmup_max_len,
+            experiment_path=experiment_path,
             **kwargs
         )
 
@@ -87,7 +91,7 @@ def run_experiment(
                             print('Skipping first training.')
                             skip_first_training = True
                             break
-                if not skip_first_training:
+                if not skip_first_training and mode == 'train':
                     experiment = AVSR(
                         unit=unit,
                         unit_file=unit_list_file,
@@ -105,6 +109,7 @@ def run_experiment(
                         architecture=architecture,
                         learning_rate=lr[0],
                         patience=5,
+                        experiment_path=experiment_path,
                         **kwargs
                     )
                     experiment.train(
@@ -133,21 +138,36 @@ def run_experiment(
                     architecture=architecture,
                     learning_rate=lr[1],
                     patience=10,
+                    required_grahps=('train', 'eval') if mode == 'train' else ('eval'),
+                    experiment_path=experiment_path,
                     **kwargs
                 )
-                experiment.train(
-                    logfile=full_logfile,
-                    num_epochs=iters[1]+1,
-                    try_restore_latest_checkpoint=True,
-                )
-        
-                with open(full_logfile, 'a') as f:
-                    f.write(20*'=' + '\n')
-                running = False
-            except:
-                print('Error restarting experiment.')
-                with open(full_logfile, 'a') as f:
-                    f.write('Error restarting experiment.\n')
+                if mode == 'train':
+                    experiment.train(
+                        logfile=full_logfile,
+                        num_epochs=iters[1]+1,
+                        try_restore_latest_checkpoint=True,
+                    )
+            
+                    with open(full_logfile, 'a') as f:
+                        f.write(20*'=' + '\n')
+                    running = False
+                elif mode == 'evaluate':
+                    checkpoint_dir = path.join('checkpoints/' + experiment_path,
+                                               path.split(logfile)[-1] + '/')
+                    latest_ckp = tf.train.latest_checkpoint(checkpoint_dir)
+                    modes = ['evaluateAllData', 'evaluateTrain']
+                    experiment.evaluate(latest_ckp, modes, 1111) # 1111: number for test epoch to get eval_data
+                    print('evaluated')
+                    running = False
+            except Exception as e:
+                if mode == 'train':
+                    print('Error restarting experiment.')
+                    with open(full_logfile, 'a') as f:
+                        f.write('Error restarting experiment.\n')
+                else:
+                    print(e)
+                    exit()
 
 
 
