@@ -197,7 +197,7 @@ class Seq2SeqBimodalDecoder(object):
             new_audio_output, updated_states_audio = new_audio_output
             print("Decoder_new_audio_output", new_audio_output)
             print("Decoder_updated_states_audio", updated_states_audio)
-            cost_per_sample = self._hparams.cost_per_sample[2]
+            cost_per_sample = self._hparams.cost_per_sample[3]
             budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states_audio, 1), 0)
             meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states_audio, 1), 0)
             self.skip_infos_audio = SkipInfoTuple(updated_states_audio, meanUpdates, budget_loss)
@@ -441,7 +441,7 @@ class Seq2SeqBimodalDecoder(object):
         self.inference_predicted_ids = outputs.sample_id
 
         if self._hparams.write_attention_alignment is True:
-            self.attention_summary = self._create_attention_alignments_summary(states)
+            self.attention_summary, self.attention_alignment = self._create_attention_alignments_summary(states)
 
     def _build_decoder_beam_search(self):
 
@@ -491,7 +491,7 @@ class Seq2SeqBimodalDecoder(object):
             swap_memory=False)
 
         if self._hparams.write_attention_alignment is True:
-            self.attention_summary = self._create_attention_alignments_summary(states)
+            self.attention_summary, self.attention_alignment = self._create_attention_alignments_summary(states)
 
         self.inference_outputs = outputs.beam_search_decoder_output
         self.inference_predicted_ids = outputs.predicted_ids[:, :, 0]  # return the first beam
@@ -582,7 +582,7 @@ class Seq2SeqBimodalDecoder(object):
         audio_summary = tf.summary.image("audio_images", audio_images_scaled,
                                          max_outputs=self._hparams.batch_size[1])
 
-        return video_summary, audio_summary
+        return [video_summary, audio_summary], [video_alignment, audio_alignment]
 
     def get_predictions(self):
         return self.inference_predicted_ids

@@ -8,6 +8,7 @@ from .attention import add_attention
 from avsr.graph_definition import create_model
 from avsr.skip_rnn_cells import SkipLSTMStateTuple
 from tensorflow.contrib.rnn import MultiRNNCell
+from tensorflow.contrib.rnn import LSTMStateTuple
 
 
 
@@ -107,7 +108,7 @@ class Seq2SeqUnimodalDecoder(object):
                     trainable=True if self._mode == 'train' else False,
                 )
     
-    def get_data(self, new_encoder_outputs, new_encoder_final_state):
+    def get_data(self, new_encoder_output, new_encoder_final_state):
 
         def prepare_final_state(state):
             r"""
@@ -131,8 +132,8 @@ class Seq2SeqUnimodalDecoder(object):
                 return state.cell_state
 
         return EncoderData(
-            outputs=new_encoder_outputs,
-            final_state=prepare_final_state(new_encoder_final_state)
+            outputs=new_encoder_output,
+            final_state=new_encoder_final_state
         )
     
     def _skipEncoderOutput(self):
@@ -152,6 +153,7 @@ class Seq2SeqUnimodalDecoder(object):
                 
                 print('Decoder_pre_decoder_cells',pre_decoder_cells)
                 print('Decoder_pre_initial_state',pre_initial_state)
+                print('Decoder _encoder_output', self._encoder_output)
                 pre_decoder_cells = MultiRNNCell([pre_decoder_cells, ])
                 out = tf.nn.dynamic_rnn(
                     cell=pre_decoder_cells,
@@ -163,15 +165,23 @@ class Seq2SeqUnimodalDecoder(object):
                     initial_state=pre_initial_state,
                     scope=scope
                 )
-                new_encoder_outputs, new_encoder_final_state = out
-                new_encoder_outputs, updated_states = new_encoder_outputs
-                print("Decoder_new_encoder_outputs", new_encoder_outputs)
+                new_encoder_output, new_encoder_final_state = out
+
+                cell_state = new_encoder_final_state
+                try:
+                    cell_state = [LSTMStateTuple(cs.c, cs.h) for cs in cell_state]
+                except:
+                    cell_state = LSTMStateTuple(cell_state.c, cell_state.h)
+                
+                new_encoder_output, updated_states = new_encoder_output
+                print("Decoder_new_encoder_output", new_encoder_output)
                 print("Decoder_updated_states", updated_states)
                 cost_per_sample = self._hparams.cost_per_sample[2]
                 budget_loss = tf.reduce_mean(tf.reduce_sum(cost_per_sample * updated_states, 1), 0)
                 meanUpdates = tf.reduce_mean(tf.reduce_sum(updated_states, 1), 0)
                 self.skip_infos = SkipInfoTuple(updated_states, meanUpdates, budget_loss)
-                self._encoder_outputs = self.get_data(new_encoder_outputs, new_encoder_final_state)
+                self._encoder_output = self.get_data(new_encoder_output, cell_state)
+                print('Encoder_Output in Decoder after skip', self._encoder_output)
     
     def _init_decoder(self):
         r"""
