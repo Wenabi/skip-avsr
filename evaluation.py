@@ -356,3 +356,50 @@ def test13():
         print(np.sum(data, (0)))
         plt.imshow(data)
         plt.show()
+
+def minUpdateRate():
+    train_file = open('./datasets/mvlrs_v1/train.scp', 'r')
+    train_file_names = train_file.read().splitlines()
+    print(len(train_file_names))
+
+    audio_input_length = p.load(open('./datasets/mvlrs_v1/audio_seq_len.p', 'rb'))
+    video_input_length = p.load(open('./datasets/mvlrs_v1/video_seq_len.p', 'rb'))
+    a_update_rate = 0
+    v_update_rate = 0
+    for key in train_file_names:
+        a_update_rate += 1/audio_input_length[key]
+        v_update_rate += 1/video_input_length[key]
+    print('min_audio_update_rate', a_update_rate/len(audio_input_length.keys()))
+    print('min_video_update_rate', v_update_rate/len(video_input_length.keys()))
+
+def formatCPS(cps):
+    return format(eval(cps), 'f').rstrip('0').rstrip('.')
+
+def getAllLogs(logsPath):
+    f = []
+    for (dirpath, dirnames, filenames) in os.walk(logsPath):
+        if len(filenames) == 1:
+            f.append([dirpath, filenames[0]])
+    return f
+
+def getParamsOfLog(logDir):
+    params = logDir.split('/')[4:]
+    return params
+
+def timeOfExperiments():
+    f = getAllLogs('./logs/mvlrs_v1/combined experiment/av_align/vad/')
+    times = []
+    for logDir, logName in f:
+        architecture, skipped_layers, v_cps, a_cps, d_cps, number_of_layers, exp_number = getParamsOfLog(logDir)
+        v_cps = formatCPS(v_cps)
+        a_cps = formatCPS(a_cps)
+        d_cps = formatCPS(d_cps)
+        with open(logDir+'/'+logName, 'r') as f:
+            lines = f.read().splitlines()
+            times.append(float(lines[-1].split(':')[1]) - float(lines[0].split(':')[1]))
+    print(np.mean(times)/60/60)
+    print(np.min(times)/60/60)
+    print(np.max(times)/60/60)
+
+
+#timeOfExperiments()

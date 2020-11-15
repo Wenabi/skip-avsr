@@ -183,7 +183,7 @@ def visualize_multiple_exp():
         plt.show()
                     
 def visualizeExperimentsBubble():
-    movedpath = 'first experiment/'
+    movedpath = 'combined experiment/'
     path = './logs/mvlrs_v1/'+movedpath+'av_align/'
     for skip_layer in os.listdir(path):
         if skip_layer != 'n':
@@ -246,6 +246,447 @@ def visualizeExperimentsBubble():
             #    ax.annotate(str(txt)[:5] , (x[i],z[i][0]))
             plt.show()
                         
-        
+def visualizeSecondExperiment():
+    movedpath = 'second experiment'
+    path = './logs/mvlrs_v1/' + movedpath + '/av_align/'
+    for skip_layer in os.listdir(path):
+        if skip_layer != 'n':
+            data = []
+            for cps in os.listdir(path + skip_layer):
+                for layer_sizes in os.listdir(path + skip_layer + '/' + cps):
+                    for exp in os.listdir(path + skip_layer + '/' + cps + '/' + layer_sizes):
+                        file_path = path + skip_layer + '/' + cps + '/' + layer_sizes + '/' + exp
+                        file = file_path.replace(movedpath, '').replace('/', '_').replace('._logs_', '')
+                        file_path += '/' + file
+                        with open(file_path, 'r') as f:
+                            lines = f.read().splitlines()
+                            error_rates = []
+                            updated_states_rates = []
+                            for line in lines:
+                                if 'error_rate' in line and not 'train' in line:
+                                    error_rate = float(line.split(' ')[1].replace('%', ''))
+                                    error_rates.append(error_rate)
+                                if 'Updated_States_Rate' in line:
+                                    usr = line.split(' ')[0].split(':')[1]
+                                    updated_states_rates.append(float(usr) * 100)
+                            data.append([cps, error_rates[-1], 'error_rate'])
+                            data.append([cps, updated_states_rates[-1], 'update_rate'])
+            df = pd.DataFrame(data, columns=['cost_per_sample', 'value', 'value_type'])
+            fig, ax = plt.subplots()
+            plt.title(skip_layer)
+            box_plot = sns.boxplot(y='value', x='cost_per_sample', data=df, palette='colorblind', hue='value_type',
+                                   ax=ax)
 
-visualizeExperimentsBubble()
+            for i, artist in enumerate(ax.artists):
+                # Set the linecolor on the artist to the facecolor, and set the facecolor to None
+                col = artist.get_facecolor()
+                artist.set_edgecolor(col)
+                artist.set_facecolor('None')
+
+                # Each box has 6 associated Line2D objects (to make the whiskers, fliers, etc.)
+                # Loop over them here, and use the same colour as above
+                for j in range(i * 6, i * 6 + 6):
+                    line = ax.lines[j]
+                    line.set_color(col)
+                    line.set_mfc(col)
+                    line.set_mec(col)
+
+            # Also fix the legend
+            for legpatch in ax.get_legend().get_patches():
+                col = legpatch.get_facecolor()
+                legpatch.set_edgecolor(col)
+                legpatch.set_facecolor('None')
+
+            plt.show()
+
+def format_e(n):
+    a = '%E' % n
+    return a.split('E')[0].rstrip('0').rstrip('.') + 'E' + a.split('E')[1]
+#visualizeExperimentsBubble()
+def getAllLogs(logsPath):
+    f = []
+    for (dirpath, dirnames, filenames) in os.walk(logsPath):
+        if len(filenames) == 1:
+            #f.append(dirpath+'/'+filenames[0])
+            f.append([dirpath, filenames[0]])
+    return f
+
+def getParamsOfLog(logDir):
+    params = logDir.split('/')[4:]
+    return params
+
+def formatCPS(cps):
+    return format(eval(cps), 'f').rstrip('0').rstrip('.')
+
+def getCPS(skipped_layers, cps, one_line=False):
+    x = ['v','a','d']
+    y = [x.index(i) for i in skipped_layers]
+    if len(skipped_layers) > 1:
+        if one_line:
+            ret = ' '.join([x[i]+':'+str(cps[i]) for i in y])
+        else:
+            ret = '\n'.join([x[i]+':'+str(cps[i]) for i in y])
+    else:
+        ret = '\n'.join([str(cps[i]) for i in y])
+    return ret
+
+def visualizeExperiment(architecture=['bimodal', 'av_align'], sl=['v','a','d','va','vd','ad','vad'], remove_metric='train_error_rate', save=False):
+    for arch in architecture:
+        print(arch)
+        data = {x: [] for x in ['v', 'a', 'd', 'va', 'vd', 'ad', 'vad']}
+        f = getAllLogs('./logs/mvlrs_v1/combined experiment/' + arch + '/')
+        for logDir, logName in f:
+            _, skipped_layers, v_cps, a_cps, d_cps, _, _ = getParamsOfLog(logDir)
+            v_cps = formatCPS(v_cps)
+            a_cps = formatCPS(a_cps)
+            d_cps = formatCPS(d_cps)
+            cps = getCPS(skipped_layers, [v_cps, a_cps, d_cps])
+            # print(cps)
+            if cps != '1':
+                with open(logDir+'/'+logName, 'r') as f:
+                    lines = f.read().splitlines()
+                    train_error_rates = []
+                    error_rates = []
+                    v_updated_states_rates = []
+                    a_updated_states_rates = []
+                    d_updated_states_rates = []
+                    if arch == 'bimodal':
+                        d_updated_states_rates_audio = []
+                        d_updated_states_rates_video = []
+                    for line in lines:
+                        if 'error_rate' in line:
+                            er = float(line.split(' ')[1].replace('%', ''))
+                            if 'train' in line:
+                                train_error_rates.append(er)
+                            else:
+                                error_rates.append(er)
+                        if 'Video_Updated_States_Rate' in line:
+                            v_usr = line.split(' ')[0].split(':')[1]
+                            v_updated_states_rates.append(float(v_usr) * 100)
+                        if 'Audio_Updated_States_Rate' in line:
+                            a_usr = line.split(' ')[0].split(':')[1]
+                            a_updated_states_rates.append(float(a_usr) * 100)
+                        if 'Decoder_Updated_States_Rate' in line:
+                            d_usr = float(line.split(' ')[0].split(':')[1])*100
+                            if arch == 'bimodal':
+                                if 'Audio' in line:
+                                    d_updated_states_rates_audio.append(d_usr)
+                                elif 'Video' in line:
+                                    d_updated_states_rates_video.append(d_usr)
+                            else:
+                                d_updated_states_rates.append(d_usr)
+                    if 'v' in skipped_layers:
+                        data[skipped_layers].append([cps, train_error_rates[-1], 'train_error_rate'])
+                        data[skipped_layers].append([cps, error_rates[-1], 'error_rate'])
+                        data[skipped_layers].append([cps, v_updated_states_rates[-1], 'v_update_rate'])
+                    if 'a' in skipped_layers:
+                        data[skipped_layers].append([cps, train_error_rates[-1], 'train_error_rate'])
+                        data[skipped_layers].append([cps, error_rates[-1], 'error_rate'])
+                        data[skipped_layers].append([cps, a_updated_states_rates[-1], 'a_update_rate'])
+                    if 'd' in skipped_layers:
+                        data[skipped_layers].append([cps, train_error_rates[-1], 'train_error_rate'])
+                        data[skipped_layers].append([cps, error_rates[-1], 'error_rate'])
+                        if arch == 'bimodal':
+                            data[skipped_layers].append([cps, d_updated_states_rates_audio[-1], 'd_update_rate_audio'])
+                            data[skipped_layers].append([cps, d_updated_states_rates_video[-1], 'd_update_rate_video'])
+                        else:
+                            data[skipped_layers].append([cps, d_updated_states_rates[-1], 'd_update_rate'])
+        for key, value in data.items():
+            print(value)
+            print(key)
+            if key in sl:
+                value = sorted(value)
+                if len(value) > 0:
+                    df = pd.DataFrame(value, columns=['Cost Per Sample', 'Rate', 'Metric'])
+
+                    mean_df = pd.DataFrame(value, columns=['Cost Per Sample', 'Rate', 'Metric'])
+                    line_data = mean_df.groupby(['Cost Per Sample', 'Metric']).agg({'Rate': 'mean'}).apply(list).to_dict()[
+                        'Rate']
+                    for k, v in line_data.items():
+                        print(k[1], k[0], v)
+
+                    fig, ax = plt.subplots()
+                    #print(df)
+                    if 'v' in key:
+                        plt.axhline(y=1.75, color='b')
+                    if 'a' in key or 'd' in key:
+                        plt.axhline(y=2.25, color='r')
+
+                    plt.title(arch+'_'+key)
+                    box_plot = sns.boxplot(y='Rate', x='Cost Per Sample', data=df[df.Metric != remove_metric], palette='colorblind', hue='Metric',
+                                           ax=ax)
+
+                    for i, artist in enumerate(ax.artists):
+                        # Set the linecolor on the artist to the facecolor, and set the facecolor to None
+                        col = artist.get_facecolor()
+                        artist.set_edgecolor(col)
+                        artist.set_facecolor('None')
+
+                        # Each box has 6 associated Line2D objects (to make the whiskers, fliers, etc.)
+                        # Loop over them here, and use the same colour as above
+                        for j in range(i * 6, i * 6 + 6):
+                            line = ax.lines[j]
+                            line.set_color(col)
+                            line.set_mfc(col)
+                            line.set_mec(col)
+
+                    # Also fix the legend
+                    for legpatch in ax.get_legend().get_patches():
+                        col = legpatch.get_facecolor()
+                        legpatch.set_edgecolor(col)
+                        legpatch.set_facecolor('None')
+
+                    if save:
+                        plt.savefig('./visualization/'+arch+'/boxplot_allCPS_'+key+'.png', dpi=320)
+                    else:
+                        plt.show()
+
+def moveFirstExperimentLogs():
+    f = getAllLogs('./logs/mvlrs_v1/first experiment/')
+    for logDir, logName in f:
+        if not '_n_' in logName:
+            old_logDir = logDir
+            old_logName = logName
+            architecture, skipped_layers, cps, number_of_layers, exp_number = getParamsOfLog(logDir)
+            new_cps = float(cps[0]+'.'+cps[1:])
+            if 'v' in skipped_layers:
+                logDir = logDir.replace(cps,format_e(new_cps)+'/0E+00'+'/0E+00').replace('first experiment','combined experiment')
+                logName = logName.replace(cps,format_e(new_cps)+'_0E+00'+'_0E+00')
+            if 'a' in skipped_layers:
+                logDir = logDir.replace(cps, '0E+00/'+format_e(new_cps) + '/0E+00').replace('first experiment','combined experiment')
+                logName = logName.replace(cps, '0E+00_'+format_e(new_cps) + '_0E+00')
+            if 'd' in skipped_layers:
+                logDir = logDir.replace(cps, '0E+00' + '/0E+00/'+format_e(new_cps)).replace('first experiment','combined experiment')
+                logName = logName.replace(cps,'0E+00' + '_0E+00_' + format_e(new_cps))
+            print(logDir)
+            print(logName)
+            from shutil import copyfile
+            os.makedirs(logDir+'/')
+            copyfile(old_logDir+'/'+old_logName, logDir+'/'+logName)
+
+def visualizeCombinedExperiments():
+    f = getAllLogs('./logs/mvlrs_v1/combined experiment/')
+    data = {x: {} for x in ['v', 'a', 'd', 'va', 'vd', 'ad', 'vad']}
+    for logDir, logName in f:
+        architecture, skipped_layers, v_cps, a_cps, d_cps, number_of_layers, exp_number = getParamsOfLog(logDir)
+        v_cps = formatCPS(v_cps)
+        a_cps = formatCPS(a_cps)
+        d_cps = formatCPS(d_cps)
+        with open(logDir + '/' + logName, 'r') as f:
+            lines = f.read().splitlines()
+            error_rates = []
+            v_updated_states_rates = []
+            a_updated_states_rates = []
+            d_updated_states_rates = []
+            for line in lines:
+                if 'error_rate' in line and not 'train' in line:
+                    error_rate = float(line.split(' ')[1].replace('%', ''))
+                    error_rates.append(error_rate)
+                if 'Video_Updated_States_Rate' in line:
+                    v_usr = line.split(' ')[0].split(':')[1]
+                    v_updated_states_rates.append(float(v_usr) * 100)
+                if 'Audio_Updated_States_Rate' in line:
+                    a_usr = line.split(' ')[0].split(':')[1]
+                    a_updated_states_rates.append(float(a_usr) * 100)
+                if 'Decoder_Updated_States_Rate' in line:
+                    d_usr = line.split(' ')[0].split(':')[1]
+                    d_updated_states_rates.append(float(d_usr) * 100)
+            cps = getCPS(skipped_layers, [v_cps, a_cps, d_cps])
+            # print(cps)
+            if not cps in data[skipped_layers].keys():
+                data[skipped_layers][cps] = []
+            if 'v' in skipped_layers:
+                data[skipped_layers][cps].append([error_rates[-1], 'Error Rate'])
+                data[skipped_layers][cps].append([v_updated_states_rates[-1], 'Video Update Rate'])
+            if 'a' in skipped_layers:
+                data[skipped_layers][cps].append([error_rates[-1], 'Error Rate'])
+                data[skipped_layers][cps].append([a_updated_states_rates[-1], 'Audio Update Rate'])
+            if 'd' in skipped_layers:
+                data[skipped_layers][cps].append([error_rates[-1], 'Error Rate'])
+                data[skipped_layers][cps].append([d_updated_states_rates[-1], 'Decoder Update Rate'])
+    data_combi = {key:value for key,value in data.items() if len(key) > 1}
+    data_single = {key:value for key,value in data.items() if len(key) == 1}
+
+    for key, cps_dict in data_combi.items():
+        for cps, value in cps_dict.items():
+            value = [[cps, x[0], x[1]] for x in value]
+            print(cps)
+            cps_values = cps.split('\n')
+            cps_values = {x.split(':')[0]: x.split(':')[1] for x in cps_values}
+            print(key)
+            for skipped_layer in key:
+                print(cps_values)
+                skipped_layer_values = data_single[skipped_layer][cps_values[skipped_layer]]
+                for skipped_layer_value in skipped_layer_values:
+                    value.append([skipped_layer+':'+cps_values[skipped_layer], skipped_layer_value[0], skipped_layer_value[1]])
+
+            df = pd.DataFrame(value, columns=['cost_per_sample', 'value', 'Metric'])
+            fig, ax = plt.subplots()
+
+            title = key.replace('d','Decoder').replace('v','Video').replace('a','Audio') + ' Combination'
+            plt.title(title)
+            print(df)
+            my_pal = {"Video Update Rate": 'blue', "Audio Update Rate": "green", "Decoder Update Rate": "black", "Error Rate":"red"}
+            box_plot = sns.boxplot(y='value', x='cost_per_sample', data=df, palette='bright', hue='Metric',
+                                   ax=ax, showmeans=True, meanprops={"marker":"o",
+                       "markerfacecolor":"white",
+                       "markeredgecolor":"black",
+                      "markersize":"5"})
+
+            for i, artist in enumerate(ax.artists):
+                # Set the linecolor on the artist to the facecolor, and set the facecolor to None
+                col = artist.get_facecolor()
+                artist.set_edgecolor(col)
+                #artist.set_facecolor('None')
+
+                # Each box has 6 associated Line2D objects (to make the whiskers, fliers, etc.)
+                # Loop over them here, and use the same colour as above
+                for j in range(i * 6, i * 6 + 6):
+                    line = ax.lines[j]
+                    line.set_color(col)
+                    line.set_mfc(col)
+                    line.set_mec(col)
+
+            # Also fix the legend
+            for legpatch in ax.get_legend().get_patches():
+                col = legpatch.get_facecolor()
+                legpatch.set_edgecolor(col)
+                #legpatch.set_facecolor('None')
+
+            #if 'v' in key:
+            #    plt.axhline(y=1.75, color='b')
+            #if 'a' in key or 'd' in key:
+            #    plt.axhline(y=2.25, color='r')
+
+            plt.xlabel('Cost per Sample')
+            plt.ylabel('Percentage')
+            plt.show()
+            #cps_fn = '_'.join(cps_values.values()).replace('.', '')
+            #plt.savefig('./visualization/boxplot_compare_' + key + '_' + cps_fn + '.png', dpi=320)
+
+def visualizeCombinedExperiments2():
+    f = getAllLogs('./logs/mvlrs_v1/combined experiment/')
+    data = {x: {} for x in ['v', 'a', 'd', 'va', 'vd', 'ad', 'vad']} #['v', 'a', 'd', 'va', 'vd', 'ad', 'vad']
+    for logDir, logName in f:
+        architecture, skipped_layers, v_cps, a_cps, d_cps, number_of_layers, exp_number = getParamsOfLog(logDir)
+        v_cps = formatCPS(v_cps)
+        a_cps = formatCPS(a_cps)
+        d_cps = formatCPS(d_cps)
+        with open(logDir + '/' + logName, 'r') as f:
+            lines = f.read().splitlines()
+            error_rates = []
+            train_error_rates = []
+            v_updated_states_rates = []
+            a_updated_states_rates = []
+            d_updated_states_rates = []
+            for line in lines:
+                if 'error_rate' in line:
+                    er = line.split(' ')[1].replace('%', '')
+                    if 'train' in line:
+                        train_error_rates.append(er)
+                    else:
+                        error_rates.append(er)
+                if 'Video_Updated_States_Rate' in line:
+                    v_usr = line.split(' ')[0].split(':')[1]
+                    v_updated_states_rates.append(float(v_usr) * 100)
+                if 'Audio_Updated_States_Rate' in line:
+                    a_usr = line.split(' ')[0].split(':')[1]
+                    a_updated_states_rates.append(float(a_usr) * 100)
+                if 'Decoder_Updated_States_Rate' in line:
+                    d_usr = line.split(' ')[0].split(':')[1]
+                    d_updated_states_rates.append(float(d_usr) * 100)
+            cps = getCPS(skipped_layers, [v_cps, a_cps, d_cps], True)
+            # print(cps)
+            if not cps in data[skipped_layers].keys():
+                data[skipped_layers][cps] = []
+            if 'v' in skipped_layers:
+                data[skipped_layers][cps].append([train_error_rates[-1], 'Train Error Rate'])
+                data[skipped_layers][cps].append([error_rates[-1], 'Error Rate'])
+                data[skipped_layers][cps].append([v_updated_states_rates[-1], 'Video Update Rate'])
+            if 'a' in skipped_layers:
+                data[skipped_layers][cps].append([train_error_rates[-1], 'Train Error Rate'])
+                data[skipped_layers][cps].append([error_rates[-1], 'Error Rate'])
+                data[skipped_layers][cps].append([a_updated_states_rates[-1], 'Audio Update Rate'])
+            if 'd' in skipped_layers:
+                data[skipped_layers][cps].append([train_error_rates[-1], 'Train Error Rate'])
+                data[skipped_layers][cps].append([error_rates[-1], 'Error Rate'])
+                data[skipped_layers][cps].append([d_updated_states_rates[-1], 'Decoder Update Rate'])
+    data_combi = {key:value for key,value in data.items() if len(key) > 1}
+    data_single = {key:value for key,value in data.items() if len(key) == 1}
+
+    for key, cps_dict in data_combi.items():
+        for cps, value in cps_dict.items():
+            value = [[cps, x[0], x[1]] for x in value]
+            mean_values = []
+            print('cps', cps)
+            cps_values = cps.split(' ')
+            cps_values = {x.split(':')[0]: x.split(':')[1] for x in cps_values}
+            print(key)
+            for skipped_layer in key:
+                print(cps_values)
+                skipped_layer_values = data_single[skipped_layer][cps_values[skipped_layer]]
+                for skipped_layer_value in skipped_layer_values:
+                    mean_values.append([skipped_layer+':'+cps_values[skipped_layer], skipped_layer_value[0], skipped_layer_value[1]])
+            df = pd.DataFrame(value, columns=['cost_per_sample', 'value', 'Metric'])
+            mean_df = pd.DataFrame(mean_values, columns=['cost_per_sample', 'value', 'Metric'])
+            fig, ax = plt.subplots()
+            line_data = mean_df.groupby(['cost_per_sample','Metric']).agg({'value':'mean'}).apply(list).to_dict()['value']
+            print(line_data)
+
+            colors = sns.color_palette('bright')
+
+            if 'v' in key:
+                plt.axhline(y=line_data[('v:' + cps_values['v'], 'Video Update Rate')], color=colors[1], label='(old) Video Update Rate', linewidth=1.5)
+                plt.axhline(y=line_data[('v:' + cps_values['v'], 'Error Rate')], color=colors[1], linestyle='dashdot', label='(old) Video Error Rate', linewidth=1.5)
+            if 'a' in key:
+                plt.axhline(y=line_data[('a:' + cps_values['a'], 'Audio Update Rate')], color=colors[2], label='(old) Audio Update Rate', linewidth=1.5)
+                plt.axhline(y=line_data[('a:' + cps_values['a'], 'Error Rate')], color=colors[2], linestyle='dashed', label='(old) Audio Error Rate', linewidth=1.5)
+            if 'd' in key:
+                plt.axhline(y=line_data[('d:' + cps_values['d'], 'Error Rate')], color=colors[3], linestyle='dotted', label='(old) Decoder Update Rate', linewidth=1.5)
+                plt.axhline(y=line_data[('d:' + cps_values['d'], 'Decoder Update Rate')], color=colors[3], label='(old) Decoder Error Rate', linewidth=1.5)
+
+            print(df)
+            box_plot = sns.boxplot(y='value', x='cost_per_sample', data=df, palette='bright', hue='Metric',
+                                   ax=ax, showmeans=True, meanprops={"marker":"o",
+                       "markerfacecolor":"white",
+                       "markeredgecolor":"black",
+                      "markersize":"5"},
+                                   boxprops=dict(alpha=.3))
+            print(len(ax.lines))
+            for i, artist in enumerate(ax.artists):
+                print('test', i)
+                # Set the linecolor on the artist to the facecolor, and set the facecolor to None
+                #col = artist.get_facecolor()
+                col = colors[i]
+                artist.set_edgecolor(col)
+                #artist.set_facecolor('None')
+
+                # Each box has 6 associated Line2D objects (to make the whiskers, fliers, etc.)
+                # Loop over them here, and use the same colour as above
+                for j in range(i * 6 + len(key)*2, i * 6 + 6 + len(key)*2):
+                    line = ax.lines[j]
+                    line.set_color(col)
+                    line.set_mfc(col)
+                    line.set_mec(col)
+
+            # Also fix the legend
+            for legpatch in ax.get_legend().get_patches():
+                col = legpatch.get_facecolor()
+                legpatch.set_edgecolor(col)
+                #legpatch.set_facecolor('None')
+
+            #if 'v' in key:
+            #    plt.axhline(y=1.75, color='b')
+            #if 'a' in key or 'd' in key:
+            #    plt.axhline(y=2.25, color='r')
+            title = key.replace('d', 'Decoder').replace('v', 'Video').replace('a', 'Audio') + ' Combination'
+            plt.title(title)
+            plt.xlabel('Cost per Sample')
+            plt.ylabel('Percentage')
+            plt.show()
+            #cps_fn = '_'.join(cps_values.values()).replace('.','')
+            #plt.savefig('./visualization/boxplot_compareLines_' + key + '_' + cps_fn + '.png', dpi=320)
+
+#visualizeCombinedExperiments()
+#visualizeCombinedExperiments2()
+visualizeExperiment(architecture=['bimodal'], save=True)
