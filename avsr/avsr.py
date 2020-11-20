@@ -307,6 +307,7 @@ class AVSR(object):
         if len(loss_diff_list) < self._hparams.patience:
             f = open(logfile, 'a')
             num_epochs = last_epoch+num_epochs if num_epochs <100 else num_epochs
+            num_epochs = min(num_epochs, 125)
             print(last_epoch+1, num_epochs, self._hparams.experiment_name)
             for current_epoch in range(last_epoch+1, num_epochs):
                 epoch = current_epoch

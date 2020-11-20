@@ -44,40 +44,35 @@ def createConfig(gpu_num, new_config):
         json.dump(config, f)
     createFolders(experiment_path)
     
-def createConfigs(num_gpus):
+def createConfigs(gpus):
     config_list = []
     for seed in range(3):
         dataset = 'mvlrs_v1'
-        cell_type = ['skip_lstm','skip_lstm','skip_lstm']
-        for architecture in ['av_align']:
-            for v_cps in [0.00001, 0.0001]:
-                for a_cps in [0.0001, 0.001]:
-                    for d_cps in [0.0001, 0.001]:
-                        cps = [v_cps, a_cps, d_cps]
-                        config = {'seed':seed,
-                                  'dataset':dataset,
-                                  'architecture':architecture,
-                                  'cell_type':cell_type,
-                                  'cost_per_sample':cps,
-                                  'set_data_null':''}
-                        config_list.append(config)
-        for architecture in ['bimodal']:
-            for v_cps in [0.00001, 0.0001]:
-                for a_cps in [0.0001, 0.001]:
-                    for dv_cps in [0.00001, 0.0001]:
-                        for da_cps in [0.0001, 0.001]:
-                            cps = [v_cps, a_cps, dv_cps, da_cps]
-                            config = {'seed':seed,
-                                      'dataset':dataset,
-                                      'architecture':architecture,
-                                      'cell_type':cell_type,
-                                      'cost_per_sample':cps,
-                                      'set_data_null':''}
-                            config_list.append(config)
+        for cell_type in [['lstm','skip_lstm','lstm'], ['lstm','lstm','skip_lstm']]:
+            for architecture in ['av_align', 'bimodal']:
+                for cps in [0.0005]:
+                    cps_values = []
+                    for c in cell_type:
+                        if 'skip' in c:
+                            cps_values.append(cps)
+                        else:
+                            cps_values.append(0.0)
+                    if architecture == 'bimodal' and cell_type[2] == 'skip_lstm':
+                        cps_values.append(cps)
+                    elif architecture == 'bimodal':
+                        cps_values.append(0.0)
+                    print(architecture, len(cps_values))
+                    config = {'seed':seed,
+                              'dataset':dataset,
+                              'architecture':architecture,
+                              'cell_type':cell_type,
+                              'cost_per_sample':cps_values,
+                              'set_data_null':''}
+                    config_list.append(config)
     print('Number of Configs:', len(config_list))
     for i in range(len(config_list)):
-        x = i%num_gpus
-        createConfig(x, config_list[i])
+        x = i%len(gpus)
+        createConfig(gpus[x], config_list[i])
     makedirs(path.dirname('./configs/' + config['dataset'] + '/finished/'), exist_ok=True)
     
 def createConfigsTest(num_gpus):
@@ -98,4 +93,4 @@ def createConfigsTest(num_gpus):
         createConfig(x, config_list[i])
     makedirs(path.dirname('./configs/' + config['dataset'] + '/finished/'), exist_ok=True)
     
-createConfigs(7)
+createConfigs([3,4,5,6,7])

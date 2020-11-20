@@ -1,4 +1,5 @@
 import os
+import json
 
 def rewrite_log():
     log_dir = "./logs/"
@@ -355,7 +356,6 @@ def test13():
         print(audio_input_length[key])
         print(np.sum(data, (0)))
         plt.imshow(data)
-        plt.show()
 
 def minUpdateRate():
     train_file = open('./datasets/mvlrs_v1/train.scp', 'r')

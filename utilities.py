@@ -28,3 +28,26 @@ def remove_old_checkpoints(keep_last=2):
             for file in checkpoint_files:
                 os.remove(checkpoint_path + '/' + file)
 
+def remove_old_experiment_results():
+    configs_path = 'N:/experiments/fourth experiments backup/configs/mvlrs_v1/all configs/'
+    working_dir = 'F:/Documents/PycharmProjects/Masterthesis/skip-avsr/'
+    for config_name in os.listdir(configs_path):
+        config = json.load(open(configs_path + config_name, 'r'))
+        try:
+            for folder in ['logs','checkpoints','predictions']:
+                path = working_dir + folder + '/' + config['experiment_path']
+                if 'logs' == folder:
+                    path = path + '/'
+                else:
+                    path = path + config['experiment_name'] + '/'
+                for p in os.listdir(path):
+                    if os.path.isdir(path+p):
+                        for f in os.listdir(path+p):
+                            os.remove(path+p+'/'+f)
+                    else:
+                        os.remove(path+p)
+        except:
+            print(config['experiment_name'])
+        
+
+remove_old_experiment_results()
