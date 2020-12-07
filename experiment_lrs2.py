@@ -13,7 +13,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = "2"  # ERROR
 
 def main(config, mode='train'):
     dataset_name = config['dataset']
-    tfrecords_path = 'N:/datasets/'+dataset_name+'/tfrecords/' #N:
+    tfrecords_path = './datasets/'+dataset_name+'/tfrecords/' #N:
     
     video_train_record = tfrecords_path +'rgb36lips_train.tfrecord'
     video_trainTest_record = tfrecords_path +'rgb36lips_trainTest.tfrecord'
@@ -21,24 +21,24 @@ def main(config, mode='train'):
     labels_train_record = tfrecords_path +'characters_train.tfrecord'
     labels_trainTest_record = tfrecords_path +'characters_trainTest.tfrecord'
     labels_test_record = tfrecords_path +'characters_test.tfrecord'
-    unit_list_file = 'F:/Documents/datasets/'+dataset_name+'/misc/character_list' #F:/Documents
+    unit_list_file = './datasets/'+dataset_name+'/misc/character_list' #F:/Documents
 
     audio_train_records = (
-        tfrecords_path +'logmel_train_clean.tfrecord',
+        tfrecords_path +'logmel_train_'+config['snr']+'.tfrecord',
         #tfrecords_path +'logmel_train_cafe_10db.tfrecord',
         #tfrecords_path +'logmel_train_cafe_0db.tfrecord',
         #tfrecords_path +'logmel_train_cafe_-5db.tfrecord'
     )
 
     audio_trainTest_records = (
-        tfrecords_path +'logmel_trainTest_clean.tfrecord',
+        tfrecords_path +'logmel_trainTest_'+config['snr']+'.tfrecord',
         #tfrecords_path +'logmel_trainTest_cafe_10db.tfrecord',
         #tfrecords_path +'logmel_trainTest_cafe_0db.tfrecord',
         #tfrecords_path +'logmel_trainTest_cafe_-5db.tfrecord'
     )
 
     audio_test_records = (
-       tfrecords_path +'logmel_test_clean.tfrecord',
+       tfrecords_path +'logmel_test_'+config['snr']+'.tfrecord',
        #tfrecords_path +'logmel_test_cafe_10db.tfrecord',
        #tfrecords_path +'logmel_test_cafe_0db.tfrecord',
        #tfrecords_path +'logmel_test_cafe_-5db.tfrecord'

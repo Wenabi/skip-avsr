@@ -73,24 +73,12 @@ def run_experiment(
         running = True
         while running:
             try:
-                with open(full_logfile, 'a') as f:
-                    ad_name = audio_train.split('_')
-                    if len(ad_name) == 3:
-                        ad_name = ad_name[2].split('.')[0]
-                    elif len(ad_name) == 4:
-                        ad_name = ad_name[2]+'_'+ad_name[3].split('.')[0]
-                    #f.write(f'Start training with {ad_name} audio data.\n')
                 skip_first_training = False
-                ad_name_reached = False
-                print(ad_name)
                 for line in open(full_logfile, 'r').read().splitlines():
-                    if ad_name in line:
-                        ad_name_reached = True
-                    if ad_name_reached:
-                        if 'Stopped training early.' in line:
-                            print('Skipping first training.')
-                            skip_first_training = True
-                            break
+                    if 'Stopped training early.' in line:
+                        print('Skipping first training.')
+                        skip_first_training = True
+                        break
                 if not skip_first_training and mode == 'train':
                     experiment = AVSR(
                         unit=unit,

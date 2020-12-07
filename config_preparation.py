@@ -1,5 +1,6 @@
 import numpy as np
 import json
+from pprint import pprint
 
 from os import makedirs, path, system
 
@@ -17,6 +18,7 @@ def createConfig(gpu_num, new_config):
               'architecture': 'av_align',
               'cell_type': ['lstm','lstm','lstm'],
               'cost_per_sample': [0.0, 0.0, 0.0],
+              'snr': 'clean',
               'encoder_units_per_layer': [(256,), (256,256,256)],
               'decoder_units_per_layer': (256,),
               'batch_size': (48, 48),
@@ -27,6 +29,7 @@ def createConfig(gpu_num, new_config):
               'set_data_null':''}
     config.update(new_config)
     experiment_path = config['dataset']+'/'
+    experiment_path += config['snr']+'/'
     experiment_path += config['architecture']+'/'
     skip_layer = np.array(['v','a','d'])[np.where(np.array(config['cell_type'])=='skip_lstm')]
     if len(skip_layer) == 0:
@@ -48,36 +51,23 @@ def createConfigs(gpus):
     config_list = []
     for seed in range(3):
         dataset = 'mvlrs_v1'
-        for cell_type in [['skip_lstm','skip_lstm','skip_lstm']]:
-            for architecture in ['av_align']:
-                for v_cps in [0.00001, 0.0001]:
-                    for a_cps in [0.0001, 0.0005]:
-                        for d_cps in [0.0001, 0.0005]:
-                            if not (a_cps == 0.0001 and d_cps == 0.0001):
-                                cps_values = [v_cps, a_cps, d_cps]
-                                config = {'seed':seed,
-                                          'dataset':dataset,
-                                          'architecture':architecture,
-                                          'cell_type':cell_type,
-                                          'cost_per_sample':cps_values,
-                                          'set_data_null':''}
-                                config_list.append(config)
-            for architecture in ['bimodal']:
-                for v_cps in [0.00001, 0.0001]:
-                    for a_cps in [0.0001, 0.0005]:
-                        for dv_cps in [0.00001, 0.0001]:
-                            for da_cps in [0.0001, 0.0005]:
-                                if not (a_cps == 0.0001 and da_cps == 0.0001):
-                                    cps_values = [v_cps, a_cps, dv_cps, da_cps]
-                                    config = {'seed':seed,
-                                              'dataset':dataset,
-                                              'architecture':architecture,
-                                              'cell_type':cell_type,
-                                              'cost_per_sample':cps_values,
-                                              'set_data_null':''}
-                                    config_list.append(config)
+        architecture, cell_type = 'av_align', ['skip_lstm','skip_lstm', 'skip_lstm']
+        for snr in ['cafe_10db']:
+            for v_cps in [0.00001, 0.0001]:
+                for cps_values in [[v_cps, 0.0001, 0.0001],
+                                   [v_cps, 0.0001, 0.001],
+                                   [v_cps, 0.0005, 0.0001]]:
+                    config = {'seed': seed,
+                              'dataset': dataset,
+                              'snr': snr,
+                              'architecture': architecture,
+                              'cell_type': cell_type,
+                              'cost_per_sample': cps_values,
+                              'set_data_null': ''}
+                    config_list.append(config)
+            
     print('Number of Configs:', len(config_list))
-    print(config_list)
+    pprint(config_list)
     for i in range(len(config_list)):
         x = i%len(gpus)
         createConfig(gpus[x], config_list[i])
@@ -101,4 +91,4 @@ def createConfigsTest(num_gpus):
         createConfig(x, config_list[i])
     makedirs(path.dirname('./configs/' + config['dataset'] + '/finished/'), exist_ok=True)
     
-createConfigs([3,4,5,6,7])
+createConfigs([0,1,2,3,4,5,6,7])
