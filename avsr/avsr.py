@@ -89,6 +89,7 @@ class AVSR(object):
                  write_summary=False,
                  write_eval_data=False,
                  set_data_null='',
+                 modes=['evaluateAllData', 'evaluateTrain'],
                  **kwargs,
                  ):
         r"""
@@ -226,6 +227,7 @@ class AVSR(object):
             write_summary=write_summary,
             write_eval_data=write_eval_data,
             set_data_null=set_data_null,
+            modes=modes,
             kwargs=kwargs,
         )
         
@@ -248,7 +250,7 @@ class AVSR(object):
         self._create_models()
         self._create_sessions()
         self._initialize_sessions()
-
+        
     def __del__(self):
         if 'train' in self._required_graphs:
             self._train_session.close()
@@ -612,7 +614,6 @@ class AVSR(object):
 
     def evaluate(self,
                  checkpoint_path,
-                 modes,
                  epoch=None,
                  alignments_outdir='./alignments/tmp/',
                  beam_graphs_outdir='./beam_graphs/tmp/',
@@ -622,28 +623,31 @@ class AVSR(object):
                 path.dirname(f'./eval_data/{self._hparams.experiment_path}/{self._hparams.experiment_name}/'), exist_ok=True)
         error_rates = {}
         
-        for mode in modes:#'evaluateAudio', 'evaluateVideo', 'evaluateNoData'
+        for mode in self._hparams.modes:#'evaluateAudio', 'evaluateVideo', 'evaluateNoData'
             print(mode)
             error_rates[mode] = None
-            if mode == 'evaluateAllData':
+            if mode in ['evaluateAllData', 'evaluateAllTrainData', 'evaluateTrain']:
                 evaluate_data = {}
             sess = None
             evaluate_model = None
             if mode == 'evaluateAllData':
                 sess = self._evaluate_session
                 evaluate_model = self._evaluate_model
-            elif mode == 'evaluateAudio':
-                sess = self._evaluateAudio_session
-                evaluate_model = self._evaluateAudio_model
-            elif mode == 'evaluateVideo':
-                sess = self._evaluateVideo_session
-                evaluate_model = self._evaluateVideo_model
-            elif mode == 'evaluateNoData':
-                sess = self._evaluateNoData_session
-                evaluate_model = self._evaluateNoData_model
+            #elif mode == 'evaluateAudio':
+            #    sess = self._evaluateAudio_session
+            #    evaluate_model = self._evaluateAudio_model
+            #elif mode == 'evaluateVideo':
+            #    sess = self._evaluateVideo_session
+            #    evaluate_model = self._evaluateVideo_model
+            #elif mode == 'evaluateNoData':
+            #    sess = self._evaluateNoData_session
+            #    evaluate_model = self._evaluateNoData_model
             elif mode == 'evaluateTrain':
                 sess = self._evaluateTrain_session
                 evaluate_model = self._evaluateTrain_model
+            elif mode == 'evaluateAllTrainData':
+                sess = self._evaluateAllTrainData_session
+                evaluate_model = self._evaluateAllTrainData_model
             evaluate_model.model.saver.restore(
                 sess=sess,
                 save_path=checkpoint_path
@@ -670,7 +674,7 @@ class AVSR(object):
                 # 'weights': self._evaluate_model.model._audio_encoder._encoder_cells.weights,
             }
             
-            if mode == 'evaluateAllData':
+            if mode in ['evaluateAllData', 'evaluateAllTrainData', 'evaluateTrain']:
                 if 'skip' in self._hparams.cell_type[0]:
                     session_dict['video_updated_states'] = evaluate_model.model.video_skip_infos.updated_states
                     session_dict['video_inputs_lengths'] = evaluate_model.data[0].inputs_length
@@ -708,6 +712,12 @@ class AVSR(object):
             while True:
                 if eval_counter % 10 == 0:
                     print(mode, eval_counter)
+                if eval_counter % 100 == 0 and eval_counter > 0:
+                    if mode in ['evaluateAllTrainData'] and self._hparams.write_eval_data:
+                        p.dump(evaluate_data, open(
+                            f'./eval_data/{self._hparams.experiment_path}/{self._hparams.experiment_name}/eval_data_{mode[8:-4]}_{eval_counter}_e{epoch}.p',
+                            'wb'))
+                        evaluate_data = {}
                 try:
                     #
                     out_list = sess.run(list(session_dict.values()))
@@ -748,7 +758,7 @@ class AVSR(object):
     
                         file = outputs['input_filenames'][idx].decode('utf-8')
                         
-                        if self._hparams.write_eval_data is True and mode == 'evaluateAllData':
+                        if self._hparams.write_eval_data is True and mode in ['evaluateAllData', 'evaluateAllTrainData', 'evaluateTrain']:
                             evaluate_data[file] = {
                                 'encoder_attention_summary': outputs['encoder_attention_summary'][idx],
                                 'encoder_attention_alignment': outputs['encoder_attention_alignment'][idx],
@@ -878,8 +888,8 @@ class AVSR(object):
             # plot_err_vs_seq_len(labels_dict, uer_dict, 'tmp.pdf')
             # mat = compute_uer_confusion_matrix(predictions_dict=predictions_dict, labels_dict=labels_dict, unit_dict=self._unit_dict)
             error_rates[mode] = error_rate
-            if mode == 'evaluateAllData' and self._hparams.write_eval_data:
-                p.dump(evaluate_data, open(f'./eval_data/{self._hparams.experiment_path}/{self._hparams.experiment_name}/eval_data_e{epoch}.p', 'wb'))
+            if mode in ['evaluateAllData', 'evaluateAllTrainData', 'evaluateTrain'] and self._hparams.write_eval_data:
+                p.dump(evaluate_data, open(f'./eval_data/{self._hparams.experiment_path}/{self._hparams.experiment_name}/eval_data_{mode[8:-4]}_{eval_counter}_e{epoch}.p', 'wb'))
         return error_rates
 
     def calc_validation_loss(self, checkpoint_path):
@@ -925,10 +935,13 @@ class AVSR(object):
             self._valLoss_graph = tf.Graph()
         if 'eval' in self._required_graphs:
             self._evaluate_graph = tf.Graph()
-            self._evaluateTrain_graph = tf.Graph()
-            self._evaluateAudio_graph = tf.Graph()
-            self._evaluateVideo_graph = tf.Graph()
-            self._evaluateNoData_graph = tf.Graph()
+            if 'evaluateTrain' in self._hparams.modes:
+                self._evaluateTrain_graph = tf.Graph()
+            if 'evaluateAllTrainData' in self._hparams.modes:
+                self._evaluateAllTrainData_graph = tf.Graph()
+            #self._evaluateAudio_graph = tf.Graph()
+            #self._evaluateVideo_graph = tf.Graph()
+            #self._evaluateNoData_graph = tf.Graph()
         # self._predict_graph = tf.Graph()
 
     def _create_models(self):
@@ -947,22 +960,28 @@ class AVSR(object):
                 graph=self._evaluate_graph,
                 mode='evaluate',
                 batch_size=self._hparams.batch_size[1])
-            self._evaluateTrain_model = self._make_model(
-                graph=self._evaluateTrain_graph,
-                mode='evaluateTrain',
-                batch_size=self._hparams.batch_size[1])
-            self._evaluateAudio_model = self._make_model(
-                graph=self._evaluateAudio_graph,
-                mode='evaluateAudio',
-                batch_size=self._hparams.batch_size[1])
-            self._evaluateVideo_model = self._make_model(
-                graph=self._evaluateVideo_graph,
-                mode='evaluateVideo',
-                batch_size=self._hparams.batch_size[1])
-            self._evaluateNoData_model = self._make_model(
-                graph=self._evaluateNoData_graph,
-                mode='evaluateNoData',
-                batch_size=self._hparams.batch_size[1])
+            if 'evaluateTrain' in self._hparams.modes:
+                self._evaluateTrain_model = self._make_model(
+                    graph=self._evaluateTrain_graph,
+                    mode='evaluateTrain',
+                    batch_size=self._hparams.batch_size[1])
+            if 'evaluateAllTrainData' in self._hparams.modes:
+                self._evaluateAllTrainData_model = self._make_model(
+                    graph=self._evaluateAllTrainData_graph,
+                    mode='evaluateAllTrainData',
+                    batch_size=self._hparams.batch_size[1])
+            #self._evaluateAudio_model = self._make_model(
+            #    graph=self._evaluateAudio_graph,
+            #    mode='evaluateAudio',
+            #    batch_size=self._hparams.batch_size[1])
+            #self._evaluateVideo_model = self._make_model(
+            #    graph=self._evaluateVideo_graph,
+            #    mode='evaluateVideo',
+            #    batch_size=self._hparams.batch_size[1])
+            #self._evaluateNoData_model = self._make_model(
+            #    graph=self._evaluateNoData_graph,
+            #    mode='evaluateNoData',
+            #    batch_size=self._hparams.batch_size[1])
 
     def _create_sessions(self):
         config = tf.ConfigProto(allow_soft_placement=True)
@@ -972,10 +991,13 @@ class AVSR(object):
             self._valLoss_session = tf.Session(graph=self._valLoss_graph, config=config)
         if 'eval' in self._required_graphs:
             self._evaluate_session = tf.Session(graph=self._evaluate_graph, config=config)
-            self._evaluateTrain_session = tf.Session(graph=self._evaluateTrain_graph, config=config)
-            self._evaluateAudio_session = tf.Session(graph=self._evaluateAudio_graph, config=config)
-            self._evaluateVideo_session = tf.Session(graph=self._evaluateVideo_graph, config=config)
-            self._evaluateNoData_session = tf.Session(graph=self._evaluateNoData_graph, config=config)
+            if 'evaluateTrain' in self._hparams.modes:
+                self._evaluateTrain_session = tf.Session(graph=self._evaluateTrain_graph, config=config)
+            if 'evaluateAllTrainData' in self._hparams.modes:
+                self._evaluateAllTrainData_session = tf.Session(graph=self._evaluateAllTrainData_graph, config=config)
+            #self._evaluateAudio_session = tf.Session(graph=self._evaluateAudio_graph, config=config)
+            #self._evaluateVideo_session = tf.Session(graph=self._evaluateVideo_graph, config=config)
+            #self._evaluateNoData_session = tf.Session(graph=self._evaluateNoData_graph, config=config)
         # self._predict_session = tf.Session(graph=self._predict_graph, config=config)
 
         if self._hparams.profiling is True:
@@ -996,16 +1018,19 @@ class AVSR(object):
             self._valLoss_session.run(self._valLoss_model.initializer)
         if 'eval' in self._required_graphs:
             self._evaluate_session.run(self._evaluate_model.initializer)
-            self._evaluateTrain_session.run(self._evaluateTrain_model.initializer)
-            self._evaluateAudio_session.run(self._evaluateAudio_model.initializer)
-            self._evaluateVideo_session.run(self._evaluateVideo_model.initializer)
-            self._evaluateNoData_session.run(self._evaluateNoData_model.initializer)
+            if 'evaluateTrain' in self._hparams.modes:
+                self._evaluateTrain_session.run(self._evaluateTrain_model.initializer)
+            if 'evaluateAllTrainData' in self._hparams.modes:
+                self._evaluateAllTrainData_session.run(self._evaluateAllTrainData_model.initializer)
+            #self._evaluateAudio_session.run(self._evaluateAudio_model.initializer)
+            #self._evaluateVideo_session.run(self._evaluateVideo_model.initializer)
+            #self._evaluateNoData_session.run(self._evaluateNoData_model.initializer)
 
     def _make_model(self, graph, mode, batch_size):
         with graph.as_default():
             print('make_model', mode, batch_size)
             video_data, audio_data = self._fetch_data(mode, batch_size)
-            
+            print('data was fetched', mode)
             video_features, audio_features = self._preprocess_data(video_data, audio_data, mode, batch_size)
             
             #if mode == 'evaluateVideo' or mode == 'evaluateNoData':
@@ -1085,11 +1110,11 @@ class AVSR(object):
 
         if self._video_processing is not None and self._audio_processing is not None:
             iterator = make_iterator_from_two_records(
-                video_record=self._video_train_record if mode == 'train' else (
+                video_record=self._video_train_record if mode in ['train', 'evaluateAllTrainData'] else (
                     self._video_trainTest_record if mode == 'evaluateTrain' else self._video_test_record),
-                audio_record=self._audio_train_record if mode == 'train' else (
+                audio_record=self._audio_train_record if mode in ['train', 'evaluateAllTrainData'] else (
                     self._audio_trainTest_record if mode == 'evaluateTrain' else self._audio_test_record),
-                label_record=self._labels_train_record if mode == 'train' else (
+                label_record=self._labels_train_record if mode in ['train', 'evaluateAllTrainData'] else (
                     self._labels_trainTest_record if mode == 'evaluateTrain' else self._labels_test_record),
                 batch_size=batch_size,
                 unit_dict=self._hparams.unit_dict,
@@ -1127,17 +1152,16 @@ class AVSR(object):
 
                 audio_data = self._parse_iterator(audio_iterator)
         print('fetch_data_mode', mode)
-        print('fetch_data_mode', mode)
         print('fetch_data_video_data', video_data)
         print('fetch_data_audio_data', audio_data)
         if mode == 'evaluateVideo' or mode == 'evaluateNoData' or self._hparams.set_data_null == 'audio':
             #audio_data = audio_data._replace(inputs=tf.zeros_like(audio_data.inputs))
             audio_data = audio_data._replace(inputs=tf.zeros(shape=tf.shape(audio_data.inputs), dtype=self._hparams.dtype))
+            print('fetch_data_audio_data', audio_data)
         if mode == 'evaluateAudio' or mode == 'evaluateNoData' or self._hparams.set_data_null == 'video':
             #video_data = video_data._replace(inputs=tf.zeros_like(video_data.inputs))
             video_data = video_data._replace(inputs=tf.zeros(shape=tf.shape(video_data.inputs), dtype=self._hparams.dtype))
-        print('fetch_data_video_data', video_data)
-        print('fetch_data_audio_data', audio_data)
+            print('fetch_data_video_data', video_data)
         return video_data, audio_data
 
     def _preprocess_data(self, video_data, audio_data, mode, batch_size):
@@ -1202,7 +1226,7 @@ class AVSR(object):
                 raise Exception('unknown audio content')
         else:
             pass
-
+        
         return video_data, audio_data
 
     def _initialize_summaries(self, summaries_dir, log_file_name):
@@ -1212,3 +1236,4 @@ class AVSR(object):
 
         with self._train_graph.as_default():
             self._merged_train_summaries = tf.summary.merge_all()
+    

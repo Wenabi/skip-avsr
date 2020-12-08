@@ -56,7 +56,7 @@ def add_noise_cached(orig_signal, noise_type, noise_data, snr):
     noise_variance = np.sqrt(noise_power)
 
     noise = noise_variance * noise_data
-
+    
     return orig_signal + noise
 
 

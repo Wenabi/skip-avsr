@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+import pickle as p
 import time
 from .audio import process_audio, read_wav_file
 from os import path, makedirs
@@ -13,19 +14,19 @@ class TFRecordWriter(object):
 
     def __init__(self,
                  train_files,
-                 #trainTest_files,
-                 #test_files,
+                 trainTest_files,
+                 test_files,
                  label_map,
                  remove_ext=True):
 
         if remove_ext is True:
             self._train_files = _remove_extensions(train_files)
-            #self._trainTest_files = _remove_extensions(trainTest_files)
-            #self._test_files = _remove_extensions(test_files)
+            self._trainTest_files = _remove_extensions(trainTest_files)
+            self._test_files = _remove_extensions(test_files)
         else:
             self._train_files = train_files
-            #self._trainTest_files = trainTest_files
-            #self._test_files = test_files
+            self._trainTest_files = trainTest_files
+            self._test_files = test_files
 
         self._label_map = label_map
 
@@ -67,8 +68,8 @@ class TFRecordWriter(object):
 
     def write_audio_records(self,
                             train_record_name,
-                            #trainTest_record_name,
-                            #test_record_name,
+                            trainTest_record_name,
+                            test_record_name,
                             content_type=None,
                             extension=None,
                             transform=None,
@@ -78,8 +79,8 @@ class TFRecordWriter(object):
                             ):
 
         files = (self._train_files,
-                 #self._trainTest_files,
-                 #self._test_files,
+                 self._trainTest_files,
+                 self._test_files,
                  )
 
         if transform is not None:
@@ -89,12 +90,17 @@ class TFRecordWriter(object):
 
         # preload noise data
         if len(snr_list) > 0:
-            noise_data = cache_noise(noise_type, sampling_rate=target_sr)
+            if not noise_type == 'zeroing':
+                noise_data = cache_noise(noise_type, sampling_rate=target_sr)
+            else:
+                noise_data = None
         else:
             noise_data = None
             snr_list = ('clean', )
-
-        for idx, record in enumerate([train_record_name]):
+        
+        combined_zero_audio_tokens = p.load(open('F:\Documents\PycharmProjects\Masterthesis\skip-avsr\eval_data\combined_zero_audio_tokens.p', 'rb'))
+        
+        for idx, record in enumerate([train_record_name, trainTest_record_name, test_record_name]):
             makedirs(path.dirname(record), exist_ok=True)
 
             writers = []
@@ -104,7 +110,7 @@ class TFRecordWriter(object):
                 else:
                     record_name = path.join(record + '_' + noise_type + '_' + str(snr) + 'db.tfrecord', )
                 writers.append(tf.python_io.TFRecordWriter(record_name))
-
+            
             start = time.time()
             times = []
             for i, file in enumerate(files[idx]):
@@ -123,20 +129,24 @@ class TFRecordWriter(object):
 
                     data = np.copy(input_data)  # safety first ? we don't have const in Python
 
-                    if snr is not 'clean':
+                    if snr is not 'clean' and not noise_type == 'zeroing':
                         data = add_noise_cached(  # this is the function we don't trust
                             orig_signal=data,
                             noise_type=noise_type,
                             noise_data=noise_data,
-                            snr=snr,)
-
+                            snr=snr,
+                            zeroing=combined_zero_audio_tokens[snr/100]['/'.join(file.split('/')[-3:])],)
                     if transform is not None:
                         transformed_data = apply_transform(data=data, transformation=transform, engine=engine)
                     else:
                         transformed_data = data
+                    
+                    if noise_type == 'zeroing':
+                        zeroing = combined_zero_audio_tokens[snr/100]['/'.join(file.split('/')[-3:])]
+                        transformed_data[zeroing] = 0
 
                     example = make_input_example(sentence_id, transformed_data, content_type)
-
+                    
                     writers[snr_idx].write(example.SerializeToString())
 
             for writer in writers:
@@ -205,7 +215,7 @@ class TFRecordWriter(object):
                             noise_type=noise_type,
                             noise_data=noise_data,
                             snr=snr,)
-
+                    
                     if transform is not None:
                         transformed_data = apply_transform(data=data, transformation=transform, engine=engine)
                     else:

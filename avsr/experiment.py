@@ -128,6 +128,7 @@ def run_experiment(
                     patience=10,
                     required_grahps=('train', 'eval') if mode == 'train' else ('eval'),
                     experiment_path=experiment_path,
+                    modes=['evaluateAllData', 'evaluateTrain'] if mode == 'train' else ['evaluateAllData', 'evaluateAllTrainData', 'evaluateTrain'],
                     **kwargs
                 )
                 if mode == 'train':
@@ -144,8 +145,7 @@ def run_experiment(
                     checkpoint_dir = path.join('checkpoints/' + experiment_path,
                                                path.split(logfile)[-1] + '/')
                     latest_ckp = tf.train.latest_checkpoint(checkpoint_dir)
-                    modes = ['evaluateAllData', 'evaluateTrain']
-                    experiment.evaluate(latest_ckp, modes, 1111) # 1111: number for test epoch to get eval_data
+                    experiment.evaluate(latest_ckp, 1111) # 1111: number for test epoch to get eval_data
                     print('evaluated')
                     running = False
             except Exception as e:

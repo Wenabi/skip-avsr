@@ -10,22 +10,22 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = "2"  # ERROR
 def main():
     dataset_name = 'mvlrs_v1'
     dataset_dir = f'F:/Documents/datasets/{dataset_name}/'
-    train_list = f'F:/Documents/datasets/{dataset_name}/splits/train.scp'
-    #trainTest_list = f'F:/Documents/datasets/{dataset_name}/splits/trainTest.scp'
-    #test_list = f'F:/Documents/datasets/{dataset_name}/splits/test.scp'
+    train_list = f'F:/Documents/datasets/{dataset_name}/splits/train2.scp'
+    trainTest_list = f'F:/Documents/datasets/{dataset_name}/splits/trainTest.scp'
+    test_list = f'F:/Documents/datasets/{dataset_name}/splits/test2.scp'
 
     train = get_files(train_list, dataset_dir)
-    #trainTest = get_files(trainTest_list, dataset_dir)
-    #test = get_files(test_list, dataset_dir)
+    trainTest = get_files(trainTest_list, dataset_dir)
+    test = get_files(test_list, dataset_dir)
 
     label_map = dict()
-    for file in train:#+trainTest+test:
+    for file in train+trainTest+test:#+trainTest+test:
         label_map[path.splitext(file)[0]] = path.splitext(file.split(f'{dataset_name}/')[-1])[0]
 
     writer = TFRecordWriter(
         train_files=train,
-        #trainTest_files=trainTest,
-        #test_files=test,
+        trainTest_files=trainTest,
+        test_files=test,
         label_map=label_map,
         )
     #print('Writing labels records')
@@ -42,12 +42,12 @@ def main():
         content_type='feature',
         extension='mp4',
         transform='logmel_stack_w8s3',
-        snr_list=[10, 0, -5], # ['clean', 10, 0, -5]
+        snr_list=[25, 30], # ['clean', 10, 0, -5]
         target_sr=16000,
-        noise_type='street', #cafe, street
+        noise_type='zeroing', #cafe, street, zeroing
         train_record_name=f'N:/datasets/{dataset_name}/tfrecords/logmel_train',
-        #trainTest_record_name=f'N:/datasets/{dataset_name}/tfrecords/logmel_trainTest',
-        #test_record_name=f'N:/datasets/{dataset_name}/tfrecords/logmel_test',
+        trainTest_record_name=f'N:/datasets/{dataset_name}/tfrecords/logmel_trainTest',
+        test_record_name=f'N:/datasets/{dataset_name}/tfrecords/logmel_test',
     )
     #print('Writing bmp records')
     #writer.write_bmp_records(

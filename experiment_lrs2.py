@@ -22,7 +22,7 @@ def main(config, mode='train'):
     labels_trainTest_record = tfrecords_path +'characters_trainTest.tfrecord'
     labels_test_record = tfrecords_path +'characters_test.tfrecord'
     unit_list_file = './datasets/'+dataset_name+'/misc/character_list' #F:/Documents
-
+    
     audio_train_records = (
         tfrecords_path +'logmel_train_'+config['snr']+'.tfrecord',
         #tfrecords_path +'logmel_train_cafe_10db.tfrecord',
@@ -86,6 +86,7 @@ def main(config, mode='train'):
         write_summary=config['write_summary'],
         write_eval_data=False if mode == 'train' else True,
         set_data_null=config['set_data_null'],
+        snr=config['snr'],
         mode=mode,
     )
 
@@ -119,6 +120,6 @@ if __name__ == '__main__':
             main(config, 'evaluate')
             os.rename('./configs/' + argv['-d'] + '/evaluate/gpu_' + argv['-g'] + '/' + config_file,
                       './configs/' + argv['-d'] + '/evaluate/finished/' + config_file)
-            eval_data = p.load(open(f'./eval_data/{config["experiment_path"]}/{config["experiment_name"]}/eval_data_e1111.p', 'rb'))
-            print(eval_data.keys())
+            #eval_data = p.load(open(f'./eval_data/{config["experiment_path"]}/{config["experiment_name"]}/eval_data_e1111.p', 'rb'))
+            #print(eval_data.keys())
         

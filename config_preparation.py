@@ -52,7 +52,7 @@ def createConfigs(gpus):
     for seed in range(3):
         dataset = 'mvlrs_v1'
         architecture, cell_type = 'av_align', ['skip_lstm','skip_lstm', 'skip_lstm']
-        for snr in ['cafe_10db']:
+        for snr in ['zeroing_10', 'zeroing_20']:
             for v_cps in [0.00001, 0.0001]:
                 for cps_values in [[v_cps, 0.0001, 0.0001],
                                    [v_cps, 0.0001, 0.001],
@@ -73,22 +73,22 @@ def createConfigs(gpus):
         createConfig(gpus[x], config_list[i])
     makedirs(path.dirname('./configs/' + config['dataset'] + '/finished/'), exist_ok=True)
     
-def createConfigsTest(num_gpus):
+def createConfigsTest(gpus):
     config_list = []
     dataset = 'mvlrs_v1'
     architecture = 'av_align'
-    cell_type = ['lstm','lstm','skip_lstm']
-    cps = [0.0, 0.0, 0.0]
-    config = {'seed':0,
-              'dataset':dataset,
-              'architecture':architecture,
-              'cell_type':cell_type,
-              'cost_per_sample':cps,
-              'set_data_null':''}
+    cell_type = ['skip_lstm','skip_lstm','skip_lstm']
+    config = {'seed': 0,
+              'dataset': dataset,
+              'snr': 'zeroing_10',
+              'architecture': architecture,
+              'cell_type': cell_type,
+              'cost_per_sample': [0.0001, 0.0001, 0.0001],
+              'set_data_null': ''}
     config_list.append(config)
     for i in range(len(config_list)):
-        x = i%num_gpus
-        createConfig(x, config_list[i])
+        x = i%len(gpus)
+        createConfig(gpus[x], config_list[i])
     makedirs(path.dirname('./configs/' + config['dataset'] + '/finished/'), exist_ok=True)
     
-createConfigs([0,1,2,3,4,5,6,7])
+createConfigs([0, 1, 2, 3, 4, 5, 6, 7])
