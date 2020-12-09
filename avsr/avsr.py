@@ -545,8 +545,7 @@ class AVSR(object):
                     #if epoch % 5 == 0:
                     #    modes = ['evaluateAllData', 'evaluateTrain', 'evaluateAudio', 'evaluateVideo', 'evaluateNoData']
                     #else:
-                    modes = ['evaluateAllData', 'evaluateTrain']
-                    error_rates = self.evaluate(save_path, modes, epoch)
+                    error_rates = self.evaluate(save_path, epoch)
                     error_rate = error_rates['evaluateAllData']
                     error_rate_train = error_rates['evaluateTrain']
                     #if epoch % 5 == 0:
@@ -593,7 +592,7 @@ class AVSR(object):
                     f.flush()
                     if num_epochs < 100:
                         modes = ['evaluateAllData', 'evaluateTrain']
-                        error_rates = self.evaluate(save_path, modes, epoch)
+                        error_rates = self.evaluate(save_path, epoch)
                         error_rate = error_rates['evaluateAllData']
                         error_rate_train = error_rates['evaluateTrain']
                         evaluate_names = ['error_rate', 'error_rate_train']
@@ -755,7 +754,6 @@ class AVSR(object):
     
                         labels_ids = outputs['labels'][idx]
                         labels_symbs = [self._unit_dict[sym] for sym in labels_ids]
-    
                         file = outputs['input_filenames'][idx].decode('utf-8')
                         
                         if self._hparams.write_eval_data is True and mode in ['evaluateAllData', 'evaluateAllTrainData', 'evaluateTrain']:
