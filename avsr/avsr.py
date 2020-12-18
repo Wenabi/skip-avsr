@@ -617,6 +617,7 @@ class AVSR(object):
                  alignments_outdir='./alignments/tmp/',
                  beam_graphs_outdir='./beam_graphs/tmp/',
                  ):
+        print('evaluate_checkpoint_path', checkpoint_path)
         if self._hparams.write_eval_data:
             makedirs(
                 path.dirname(f'./eval_data/{self._hparams.experiment_path}/{self._hparams.experiment_name}/'), exist_ok=True)
@@ -757,12 +758,12 @@ class AVSR(object):
                         file = outputs['input_filenames'][idx].decode('utf-8')
                         
                         if self._hparams.write_eval_data is True and mode in ['evaluateAllData', 'evaluateAllTrainData', 'evaluateTrain']:
-                            evaluate_data[file] = {
-                                'encoder_attention_summary': outputs['encoder_attention_summary'][idx],
-                                'encoder_attention_alignment': outputs['encoder_attention_alignment'][idx],
-                                'decoder_attention_summary': outputs['decoder_attention_summary'][idx],
-                                'decoder_attention_alignment': outputs['decoder_attention_alignment'][idx]}
                             if self._hparams.architecture == 'av_align':
+                                evaluate_data[file] = {
+                                    'encoder_attention_summary': outputs['encoder_attention_summary'][idx],
+                                    'encoder_attention_alignment': outputs['encoder_attention_alignment'][idx],
+                                    'decoder_attention_summary': outputs['decoder_attention_summary'][idx],
+                                    'decoder_attention_alignment': outputs['decoder_attention_alignment'][idx]}
                                 if 'skip' in self._hparams.cell_type[0]:
                                     evaluate_data[file]['video_updated_states'] = outputs['video_updated_states'][idx][
                                                                                   :outputs['video_inputs_lengths'][idx]]
@@ -773,6 +774,11 @@ class AVSR(object):
                                     evaluate_data[file]['decoder_updated_states'] = outputs['decoder_updated_states'][
                                         idx][:outputs['audio_inputs_lengths'][idx]]
                             elif self._hparams.architecture == 'bimodal':
+                                evaluate_data[file] = {
+                                    'decoder_attention_summary_video': outputs['decoder_attention_summary'][0][idx],
+                                    'decoder_attention_summary_audio': outputs['decoder_attention_summary'][1][idx],
+                                    'decoder_attention_alignment_video': outputs['decoder_attention_alignment'][0][idx],
+                                    'decoder_attention_alignment_audio': outputs['decoder_attention_alignment'][1][idx]}
                                 if 'skip' in self._hparams.cell_type[2]:
                                     evaluate_data[file]['decoder_updated_states_video'] = outputs['decoder_updated_states_video'][idx][:outputs['video_inputs_lengths'][idx]]
                                     evaluate_data[file]['decoder_updated_states_audio'] = outputs['decoder_updated_states_audio'][idx][:outputs['audio_inputs_lengths'][idx]]

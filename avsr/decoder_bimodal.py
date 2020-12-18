@@ -582,7 +582,7 @@ class Seq2SeqBimodalDecoder(object):
         audio_summary = tf.summary.image("audio_images", audio_images_scaled,
                                          max_outputs=self._hparams.batch_size[1])
 
-        return [video_summary, audio_summary], [video_alignment, audio_alignment]
+        return [video_summary, audio_summary], [video_images_scaled, audio_images_scaled]
 
     def get_predictions(self):
         return self.inference_predicted_ids

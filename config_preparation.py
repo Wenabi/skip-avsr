@@ -42,53 +42,53 @@ def createConfig(gpu_num, new_config):
     experiment_path += 'exp'+str(config['seed'])+'/'
     config['experiment_path'] = experiment_path
     config['experiment_name'] = experiment_path.replace('/','_')[:-1]
-    makedirs(path.dirname('./configs/'+config['dataset']+'/gpu_'+str(gpu_num)+'/'), exist_ok=True)
-    with open('./configs/'+config['dataset']+'/gpu_'+str(gpu_num)+'/'+config['experiment_name']+'.json', 'w') as f:
+    makedirs(path.dirname('./configs/gpu_'+str(gpu_num)+'/'), exist_ok=True)
+    with open('./configs/gpu_'+str(gpu_num)+'/'+config['experiment_name']+'.json', 'w') as f:
         json.dump(config, f)
     createFolders(experiment_path)
     
 def createConfigs(gpus):
     config_list = []
     for seed in range(3):
-        dataset = 'mvlrs_v1'
         architecture, cell_type = 'av_align', ['skip_lstm','skip_lstm', 'skip_lstm']
-        for snr in ['zeroing_10', 'zeroing_20']:
-            for v_cps in [0.00001, 0.0001]:
-                for cps_values in [[v_cps, 0.0001, 0.0001],
-                                   [v_cps, 0.0001, 0.001],
-                                   [v_cps, 0.0005, 0.0001]]:
-                    config = {'seed': seed,
-                              'dataset': dataset,
-                              'snr': snr,
-                              'architecture': architecture,
-                              'cell_type': cell_type,
-                              'cost_per_sample': cps_values,
-                              'set_data_null': ''}
-                    config_list.append(config)
+        for snr in ['clean']:
+            for cps_values in [[0.0001, 0.0001, 0.001],
+                               [0.0001, 0.0005, 0.0001],
+                               [0.00001, 0.0005, 0.0001]]:
+                config = {'seed': seed,
+                          'dataset': 'LRS3',
+                          'snr': snr,
+                          'architecture': architecture,
+                          'cell_type': cell_type,
+                          'cost_per_sample': cps_values,
+                          'set_data_null': ''}
+                config_list.append(config)
             
     print('Number of Configs:', len(config_list))
     pprint(config_list)
     for i in range(len(config_list)):
         x = i%len(gpus)
         createConfig(gpus[x], config_list[i])
-    makedirs(path.dirname('./configs/' + config['dataset'] + '/finished/'), exist_ok=True)
+    makedirs(path.dirname('./configs/finished/'), exist_ok=True)
     
 def createConfigsTest(gpus):
     config_list = []
-    dataset = 'mvlrs_v1'
+    dataset = 'LRS3'
     architecture = 'av_align'
     cell_type = ['skip_lstm','skip_lstm','skip_lstm']
     config = {'seed': 0,
               'dataset': dataset,
-              'snr': 'zeroing_10',
+              'snr': 'clean',
               'architecture': architecture,
               'cell_type': cell_type,
               'cost_per_sample': [0.0001, 0.0001, 0.0001],
-              'set_data_null': ''}
+              'set_data_null': '',
+              'batch_size': (48, 48)}
     config_list.append(config)
     for i in range(len(config_list)):
         x = i%len(gpus)
         createConfig(gpus[x], config_list[i])
-    makedirs(path.dirname('./configs/' + config['dataset'] + '/finished/'), exist_ok=True)
+    makedirs(path.dirname('./configs/finished/'), exist_ok=True)
     
 createConfigs([0, 1, 2, 3, 4, 5, 6, 7])
+#createConfigsTest([0])

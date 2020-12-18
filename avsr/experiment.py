@@ -128,7 +128,7 @@ def run_experiment(
                     patience=10,
                     required_grahps=('train', 'eval') if mode == 'train' else ('eval'),
                     experiment_path=experiment_path,
-                    modes=['evaluateAllData', 'evaluateTrain'] if mode == 'train' else ['evaluateAllData', 'evaluateAllTrainData', 'evaluateTrain'],
+                    modes=['evaluateAllData', 'evaluateTrain'] if mode == 'train' else ['evaluateAllData', 'evaluateTrain'], #'evaluateAllTrainData'
                     **kwargs
                 )
                 if mode == 'train':

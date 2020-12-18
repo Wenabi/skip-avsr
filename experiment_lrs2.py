@@ -95,31 +95,35 @@ if __name__ == '__main__':
     argv = {argv[i]:argv[i+1] for i in range(0,len(argv),2)}
     if len(argv) == 0:
         argv['-g'] = '0'
-        argv['-d'] = 'mvlrs_v1'
         argv['-m'] = 'train'
     if argv['-m'] == 'train':
         os.environ['CUDA_VISIBLE_DEVICES'] = argv['-g']
         dataset, gpu_num = None, None
-        for config_file in os.listdir('./configs/'+argv['-d']+'/gpu_'+argv['-g']+'/'):
+        for config_file in os.listdir('./configs/gpu_'+argv['-g']+'/'):
             print(config_file)
-            config = json.load(open('./configs/'+argv['-d']+'/gpu_'+argv['-g']+'/'+config_file, 'r'))
+            config = json.load(open('./configs/gpu_'+argv['-g']+'/'+config_file, 'r'))
             full_logfile = path.join('./logs', config['experiment_path'] + config['experiment_name'])
             with open(full_logfile, 'a') as f:
                 f.write('Experiment Start:' + str(time.time()) + '\n')
             main(config)
             with open(full_logfile, 'a') as f:
                 f.write('Experiment End:' + str(time.time()) + '\n')
-            os.rename('./configs/'+argv['-d']+'/gpu_'+argv['-g']+'/'+config_file, './configs/'+argv['-d']+'/finished/'+config_file)
+            os.rename('./configs/gpu_'+argv['-g']+'/'+config_file, './configs/finished/'+config_file)
     elif argv['-m'] == 'evaluate':
         os.environ['CUDA_VISIBLE_DEVICES'] = argv['-g']
         dataset, gpu_num = None, None
-        for config_file in os.listdir('./configs/' + argv['-d'] + '/evaluate/gpu_' + argv['-g'] + '/'):
-            print(config_file)
-            config = json.load(open('./configs/' + argv['-d'] + '/evaluate/gpu_' + argv['-g'] + '/' + config_file, 'r'))
+        for config_file in os.listdir('./configs/evaluate/gpu_' + argv['-g'] + '/'):
+            print('config_file', config_file)
+            config = json.load(open('./configs/evaluate/gpu_' + argv['-g'] + '/' + config_file, 'r'))
+            print(config)
             full_logfile = path.join('./logs', config['experiment_path'] + config['experiment_name'])
-            main(config, 'evaluate')
-            os.rename('./configs/' + argv['-d'] + '/evaluate/gpu_' + argv['-g'] + '/' + config_file,
-                      './configs/' + argv['-d'] + '/evaluate/finished/' + config_file)
+            if not os.path.exists('./configs/evaluate/finished/' + config_file):
+                main(config, 'evaluate')
+                print(config_file)
+                os.rename('./configs/evaluate/gpu_' + argv['-g'] + '/' + config_file,
+                          './configs/evaluate/finished/' + config_file)
+            else:
+                os.remove('./configs/evaluate/gpu_' + argv['-g'] + '/' + config_file)
             #eval_data = p.load(open(f'./eval_data/{config["experiment_path"]}/{config["experiment_name"]}/eval_data_e1111.p', 'rb'))
             #print(eval_data.keys())
         
