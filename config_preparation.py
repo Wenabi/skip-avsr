@@ -61,11 +61,31 @@ def createConfigs(gpus):
                           'architecture': architecture,
                           'cell_type': cell_type,
                           'cost_per_sample': cps_values,
-                          'set_data_null': ''}
+                          'set_data_null': '',
+                          'max_label_length': 150} #LRS3 150, mvlrs_v1 100
                 config_list.append(config)
+        for architecture in ['av_align', 'bimodal']:
+            config = {'seed': seed,
+                      'dataset': 'mvlrs_v1',
+                      'snr': 'clean',
+                      'architecture': architecture,
+                      'cell_type': ['lstm','lstm', 'lstm'],
+                      'cost_per_sample': [0.0, 0.0, 0.0],
+                      'set_data_null': '',
+                      'max_label_length': 100}  # LRS3 150, mvlrs_v1 100
+            config_list.append(config)
+        config = {'seed': seed,
+                  'dataset': 'LRS3',
+                  'snr': 'clean',
+                  'architecture': 'av_align',
+                  'cell_type': ['lstm', 'lstm', 'lstm'],
+                  'cost_per_sample': [0.0, 0.0, 0.0],
+                  'set_data_null': '',
+                  'max_label_length': 150}  # LRS3 150, mvlrs_v1 100
+        config_list.append(config)
             
     print('Number of Configs:', len(config_list))
-    pprint(config_list)
+    #pprint(config_list)
     for i in range(len(config_list)):
         x = i%len(gpus)
         createConfig(gpus[x], config_list[i])
@@ -90,5 +110,5 @@ def createConfigsTest(gpus):
         createConfig(gpus[x], config_list[i])
     makedirs(path.dirname('./configs/finished/'), exist_ok=True)
     
-createConfigs([0, 1, 2, 3, 4, 5, 6, 7])
+createConfigs([0])
 #createConfigsTest([0])
