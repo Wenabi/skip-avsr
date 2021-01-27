@@ -52,37 +52,17 @@ def createConfigs(gpus):
     for seed in range(3):
         architecture, cell_type = 'av_align', ['skip_lstm','skip_lstm', 'skip_lstm']
         for snr in ['clean']:
-            for cps_values in [[0.0001, 0.0001, 0.001],
-                               [0.0001, 0.0005, 0.0001],
-                               [0.00001, 0.0005, 0.0001]]:
+            for cps in [[0.00001, 0.0001, 0.0001],
+                        [0.00001, 0.0001, 0.001],
+                        [0.0001, 0.0001, 0.0001]]:
                 config = {'seed': seed,
                           'dataset': 'LRS3',
                           'snr': snr,
                           'architecture': architecture,
                           'cell_type': cell_type,
-                          'cost_per_sample': cps_values,
-                          'set_data_null': '',
-                          'max_label_length': 150} #LRS3 150, mvlrs_v1 100
+                          'cost_per_sample': cps,
+                          'set_data_null': ''}
                 config_list.append(config)
-        for architecture in ['av_align', 'bimodal']:
-            config = {'seed': seed,
-                      'dataset': 'mvlrs_v1',
-                      'snr': 'clean',
-                      'architecture': architecture,
-                      'cell_type': ['lstm','lstm', 'lstm'],
-                      'cost_per_sample': [0.0, 0.0, 0.0],
-                      'set_data_null': '',
-                      'max_label_length': 100}  # LRS3 150, mvlrs_v1 100
-            config_list.append(config)
-        config = {'seed': seed,
-                  'dataset': 'LRS3',
-                  'snr': 'clean',
-                  'architecture': 'av_align',
-                  'cell_type': ['lstm', 'lstm', 'lstm'],
-                  'cost_per_sample': [0.0, 0.0, 0.0],
-                  'set_data_null': '',
-                  'max_label_length': 150}  # LRS3 150, mvlrs_v1 100
-        config_list.append(config)
             
     print('Number of Configs:', len(config_list))
     #pprint(config_list)
