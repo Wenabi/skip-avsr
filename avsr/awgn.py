@@ -1,4 +1,5 @@
 import numpy as np
+import pickle as p
 from os import path
 from .audio import read_wav_file
 current_path = path.abspath(path.dirname(__file__))
@@ -35,7 +36,6 @@ def add_noise(orig_signal, noise_type, snr, sampling_rate):
 
     return np.expand_dims(orig_signal, axis=-1) + noise
 
-
 def add_noise_cached(orig_signal, noise_type, noise_data, snr):
     signal_length = len(orig_signal)
     sig_power = np.sum(np.abs(orig_signal) ** 2) / signal_length
@@ -58,6 +58,13 @@ def add_noise_cached(orig_signal, noise_type, noise_data, snr):
     noise = noise_variance * noise_data
     
     return orig_signal + noise
+
+def gen_targeted_wn(targets, orig_signal, perc, snr=0):
+    for target in targets:
+        targeted_noise = np.random.normal(np.min(orig_signal), np.max(orig_signal), len(orig_signal[target]))
+        orig_signal[target] = targeted_noise
+    
+    return orig_signal
 
 
 def random_segment(data, target_len):

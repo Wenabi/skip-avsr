@@ -8,6 +8,7 @@
 /eval_data/*
 /summaries/*
 /configs/*
+/visualization/*
 /alignments/*
 /datasets/Grid/*
 /datasets/lrs2/icmi2018/*

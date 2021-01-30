@@ -42,9 +42,9 @@ def main():
         content_type='feature',
         extension='mp4',
         transform='logmel_stack_w8s3',
-        snr_list=[25, 30], # ['clean', 10, 0, -5]
+        snr_list=[10], # ['clean', 10, 0, -5]
         target_sr=16000,
-        noise_type='zeroing', #cafe, street, zeroing
+        noise_type='cafe', #cafe, street, zeroing
         train_record_name=f'N:/datasets/{dataset_name}/tfrecords/logmel_train',
         trainTest_record_name=f'N:/datasets/{dataset_name}/tfrecords/logmel_trainTest',
         test_record_name=f'N:/datasets/{dataset_name}/tfrecords/logmel_test',

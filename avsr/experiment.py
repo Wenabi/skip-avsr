@@ -1,5 +1,5 @@
 from avsr import AVSR
-from os import path, listdir
+from os import path, listdir, replace
 import tensorflow as tf
 
 
@@ -144,8 +144,10 @@ def run_experiment(
                 elif mode == 'evaluate':
                     checkpoint_dir = path.join('checkpoints/' + experiment_path,
                                                path.split(logfile)[-1] + '/')
+                    print(checkpoint_dir)
                     latest_ckp = tf.train.latest_checkpoint(checkpoint_dir)
-                    experiment.evaluate(latest_ckp, 1111) # 1111: number for test epoch to get eval_data
+                    print(latest_ckp)
+                    experiment.evaluate(latest_ckp, 1112) # 1111: number for test epoch to get eval_data
                     print('evaluated')
                     running = False
             except Exception as e:
@@ -154,6 +156,9 @@ def run_experiment(
                     with open(full_logfile, 'a') as f:
                         f.write('Error restarting experiment.\n')
                 else:
+                    #pass
+                    #config_file = experiment_path.replace('/','_')[:-1] + '.json'
+                    #replace('./configs/evaluate/gpu_0/'+config_file, './configs/evaluate/stopped/'+config_file)
                     print(e)
                     exit()
 

@@ -13,7 +13,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = "2"  # ERROR
 
 def main(config, mode='train'):
     dataset_name = config['dataset']
-    tfrecords_path = './datasets/'+dataset_name+'/tfrecords/' #N:
+    tfrecords_path = 'N:/datasets/'+dataset_name+'/tfrecords/' #N:
     
     video_train_record = tfrecords_path +'rgb36lips_train.tfrecord'
     video_trainTest_record = tfrecords_path +'rgb36lips_trainTest.tfrecord'
@@ -21,7 +21,7 @@ def main(config, mode='train'):
     labels_train_record = tfrecords_path +'characters_train.tfrecord'
     labels_trainTest_record = tfrecords_path +'characters_trainTest.tfrecord'
     labels_test_record = tfrecords_path +'characters_test.tfrecord'
-    unit_list_file = './datasets/'+dataset_name+'/misc/character_list' #F:/Documents
+    unit_list_file = 'F:/Documents/datasets/'+dataset_name+'/misc/character_list' #F:/Documents
     
     audio_train_records = (
         tfrecords_path +'logmel_train_'+config['snr']+'.tfrecord',
@@ -95,7 +95,7 @@ if __name__ == '__main__':
     argv = {argv[i]:argv[i+1] for i in range(0,len(argv),2)}
     if len(argv) == 0:
         argv['-g'] = '0'
-        argv['-m'] = 'train'
+        argv['-m'] = 'evaluate'
     if argv['-m'] == 'train':
         os.environ['CUDA_VISIBLE_DEVICES'] = argv['-g']
         dataset, gpu_num = None, None
@@ -116,6 +116,7 @@ if __name__ == '__main__':
             print('config_file', config_file)
             config = json.load(open('./configs/evaluate/gpu_' + argv['-g'] + '/' + config_file, 'r'))
             print(config)
+            print(config_file)
             full_logfile = path.join('./logs', config['experiment_path'] + config['experiment_name'])
             if not os.path.exists('./configs/evaluate/finished/' + config_file):
                 main(config, 'evaluate')

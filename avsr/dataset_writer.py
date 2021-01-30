@@ -7,7 +7,8 @@ from os import path, makedirs
 import glob
 from imageio import imread
 import cv2
-from .awgn import cache_noise, add_noise_cached
+from .awgn import cache_noise, add_noise_cached, gen_targeted_wn
+import matplotlib.pyplot as plt
 
 
 class TFRecordWriter(object):
@@ -90,7 +91,7 @@ class TFRecordWriter(object):
 
         # preload noise data
         if len(snr_list) > 0:
-            if not noise_type == 'zeroing':
+            if not noise_type in ['zeroing', 'corrupt', 'targeted_wn']:
                 noise_data = cache_noise(noise_type, sampling_rate=target_sr)
             else:
                 noise_data = None
@@ -98,7 +99,8 @@ class TFRecordWriter(object):
             noise_data = None
             snr_list = ('clean', )
         
-        combined_zero_audio_tokens = p.load(open('F:\Documents\PycharmProjects\Masterthesis\skip-avsr\eval_data\combined_zero_audio_tokens.p', 'rb'))
+        if noise_type in ['zeroing', 'targeted_wn']:
+            combined_zero_audio_tokens = p.load(open('F:\Documents\PycharmProjects\Masterthesis\skip-avsr\eval_data\combined_zero_audio_tokens.p', 'rb'))
         
         for idx, record in enumerate([train_record_name, trainTest_record_name, test_record_name]):
             makedirs(path.dirname(record), exist_ok=True)
@@ -108,7 +110,10 @@ class TFRecordWriter(object):
                 if snr == 'clean':
                     record_name = path.join(record + '_' + str(snr) + '.tfrecord', )
                 else:
-                    record_name = path.join(record + '_' + noise_type + '_' + str(snr) + 'db.tfrecord', )
+                    if not noise_type in ['zeroing', 'targeted_wn']:
+                        record_name = path.join(record + '_' + noise_type + '_' + str(snr) + 'db.tfrecord', )
+                    else:
+                        record_name = path.join(record + '_' + noise_type + '_' + str(snr) + '.tfrecord', )
                 writers.append(tf.python_io.TFRecordWriter(record_name))
             
             start = time.time()
@@ -129,13 +134,12 @@ class TFRecordWriter(object):
 
                     data = np.copy(input_data)  # safety first ? we don't have const in Python
 
-                    if snr is not 'clean' and not noise_type == 'zeroing':
+                    if snr is not 'clean' and not noise_type in ['zeroing', 'corrupt', 'targeted_wn']:
                         data = add_noise_cached(  # this is the function we don't trust
                             orig_signal=data,
                             noise_type=noise_type,
                             noise_data=noise_data,
-                            snr=snr,
-                            zeroing=combined_zero_audio_tokens[snr/100]['/'.join(file.split('/')[-3:])],)
+                            snr=snr,)
                     if transform is not None:
                         transformed_data = apply_transform(data=data, transformation=transform, engine=engine)
                     else:
@@ -144,9 +148,20 @@ class TFRecordWriter(object):
                     if noise_type == 'zeroing':
                         zeroing = combined_zero_audio_tokens[snr/100]['/'.join(file.split('/')[-3:])]
                         transformed_data[zeroing] = 0
+                    if noise_type == 'corrupt':
+                        corrupt = combined_zero_audio_tokens[snr / 100]['/'.join(file.split('/')[-3:])]
+                        transformed_data[corrupt] = np.max(transformed_data)*10
+                    if noise_type == 'targeted_wn':
+                        targets = combined_zero_audio_tokens[snr / 100]['/'.join(file.split('/')[-3:])]
+                        transformed_data = gen_targeted_wn(targets, transformed_data, perc=snr)
+                    if noise_type == 'targeted_n':
+                        targets = combined_zero_audio_tokens[snr / 100]['/'.join(file.split('/')[-3:])]
+                        transformed_data = gen_targeted_wn(targets, transformed_data, perc=snr)
 
+                    #plt.imshow(transformed_data)
+                    #plt.show()
+                    #exit()
                     example = make_input_example(sentence_id, transformed_data, content_type)
-                    
                     writers[snr_idx].write(example.SerializeToString())
 
             for writer in writers:

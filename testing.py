@@ -36,18 +36,18 @@ def evalData():
     print(avg_len.count(115))
     
     
-def viewTFRecord():
+def viewTFRecord(dataset):
     import tensorflow as tf
     import pickle as p
     res = {}
-    for tfrecord in ['N:/datasets/' + 'Grid' + '/tfrecords/'+'logmel_train_clean.tfrecord','N:/datasets/' + 'Grid' + '/tfrecords/'+'logmel_test_clean.tfrecord']:
+    for tfrecord in ['N:/datasets/' + dataset + '/tfrecords/'+'logmel_train_clean.tfrecord','N:/datasets/' + dataset + '/tfrecords/'+'logmel_test_clean.tfrecord']:
         for example in tf.python_io.tf_record_iterator(tfrecord):
             filename = tf.train.Example.FromString(example).features.feature['filename'].bytes_list.value[0].decode('utf-8')
             input_length = tf.train.Example.FromString(example).features.feature['input_length'].int64_list.value[0]
             res[filename] = input_length
-    p.dump(res, open('./datasets/Grid/audio_seq_len.p', 'wb'))
+    p.dump(res, open('./datasets/'+dataset+'/audio_seq_len.p', 'wb'))
     
-def viewTFRecord2():
+def viewTFRecord2(dataset):
     import tensorflow as tf
     import pickle as p
     res = {}

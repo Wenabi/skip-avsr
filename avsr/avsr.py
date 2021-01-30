@@ -14,12 +14,26 @@ from .utils import compute_wer, write_sequences_to_labelfile, compute_measures
 from .visualise.beam_search import create_html, copy_headers
 from .visualise.visvis import write_frames, write_json
 from pprint import pprint
+from tensorflow.python.framework import graph_util
 
 from .io_utils import BatchedData
 
 
 class Model(collections.namedtuple("Model", ("data", "model", "initializer", "batch_size"))):
     pass
+
+
+def stats_graph(graph):
+    flops = tf.profiler.profile(graph, options=tf.profiler.ProfileOptionBuilder.float_operation())
+    params = tf.profiler.profile(graph, options=tf.profiler.ProfileOptionBuilder.trainable_variables_parameter())
+    return flops, params
+
+def load_pb(pb):
+    with tf.gfile.GFile(pb, "rb") as f:
+        graph_def = tf.GraphDef()
+        graph_def.ParseFromString(f.read())
+    with tf.Graph().as_default() as graph:
+        tf.import_graph_def(graph_def, name='')
 
 
 class AVSR(object):
@@ -633,6 +647,7 @@ class AVSR(object):
             if mode == 'evaluateAllData':
                 sess = self._evaluate_session
                 evaluate_model = self._evaluate_model
+                graph = self._evaluate_graph
             #elif mode == 'evaluateAudio':
             #    sess = self._evaluateAudio_session
             #    evaluate_model = self._evaluateAudio_model
@@ -645,14 +660,16 @@ class AVSR(object):
             elif mode == 'evaluateTrain':
                 sess = self._evaluateTrain_session
                 evaluate_model = self._evaluateTrain_model
+                graph = self._evaluateTrain_graph
             elif mode == 'evaluateAllTrainData':
                 sess = self._evaluateAllTrainData_session
                 evaluate_model = self._evaluateAllTrainData_model
+                graph = self._evaluateAllTrainData_graph
             evaluate_model.model.saver.restore(
                 sess=sess,
                 save_path=checkpoint_path
             )
-
+    
             sess.run([stream.iterator_initializer for stream in evaluate_model.data
                       if stream is not None])
             predictions_dict = {}
@@ -673,6 +690,12 @@ class AVSR(object):
                 # 'encoder_outputs': self._evaluate_model.model._audio_encoder._encoder_outputs,
                 # 'weights': self._evaluate_model.model._audio_encoder._encoder_cells.weights,
             }
+            if self._hparams.write_eval_data is True and mode in ['evaluateAllData', 'evaluateAllTrainData',
+                                                                  'evaluateTrain']:
+                flops = tf.profiler.profile(graph, options=tf.profiler.ProfileOptionBuilder.float_operation())
+                flops = flops.total_float_ops
+                print(flops)
+                evaluate_data['flops'] = flops
             
             if mode in ['evaluateAllData', 'evaluateAllTrainData', 'evaluateTrain']:
                 if 'skip' in self._hparams.cell_type[0]:
@@ -722,6 +745,27 @@ class AVSR(object):
                     #
                     out_list = sess.run(list(session_dict.values()))
                     outputs = dict(zip(session_dict.keys(), out_list))
+
+                    #flops = tf.profiler.profile(graph, options=tf.profiler.ProfileOptionBuilder.float_operation())
+                    #print("Flops: ", flops.total_float_ops)
+
+                    #print('stats before freezing')
+                    #flops1, params1 = stats_graph(graph)
+                    #print([node.name for node in graph.as_graph_def().node if 'Decoder' in node.name and 'strided_slice_5' in node.name])
+                    #output_graph = graph_util.convert_variables_to_constants(sess, graph.as_graph_def(), [node.name for node in graph.as_graph_def().node if 'Decoder' in node.name and 'strided_slice_5' in node.name])
+                    #with tf.gfile.GFile('graph.pb', "wb") as f:
+                    #    f.write(output_graph.SerializeToString())
+
+                    #with tf.Graph().as_default() as graph:
+                    #    graph = load_pb('./graph.pb')
+                    #    print('stats after freezing')
+                    #    flops2 = tf.profiler.profile(graph, options=tf.profiler.ProfileOptionBuilder.float_operation())
+
+                    #print('GFLOPs: {}'.format(flops1.total_float_ops / 1000000000.0))
+                    #print('GFLOPs: {}'.format(flops2.total_float_ops / 1000000000.0))
+
+                    #exit()
+                    
                     # debug time
                     # assert (any(list(out[2] == out[3])))
                     # assert (any(list(out[1] == out[3])))

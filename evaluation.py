@@ -1,5 +1,7 @@
 import os
 import json
+import numpy as np
+import seaborn as sns
 
 def rewrite_log():
     log_dir = "./logs/"
@@ -401,5 +403,572 @@ def timeOfExperiments():
     print(np.min(times)/60/60)
     print(np.max(times)/60/60)
 
-
 #timeOfExperiments()
+
+def getImportantTokens():
+    configs_path = './configs/mvlrs_v1/noise_configs/'
+    combined_audio_updated_states = {}
+    for config_file in os.listdir(configs_path):
+        config = json.load(open(configs_path + config_file, 'r'))
+        experiment_path = config['experiment_path']
+        experiment_name = config['experiment_name']
+        combined_experiment_name = experiment_name[:-5]
+        if combined_experiment_name not in combined_audio_updated_states.keys():
+            combined_audio_updated_states[combined_experiment_name] = {}
+        audio_updated_states = p.load(open('./eval_data/' + experiment_path + experiment_name + '/audio_updated_states.p', 'rb'))
+        for key, value in audio_updated_states.items():
+            if key not in combined_audio_updated_states[combined_experiment_name].keys():
+                combined_audio_updated_states[combined_experiment_name][key] = value
+            else:
+                combined_audio_updated_states[combined_experiment_name][key] = np.add(combined_audio_updated_states[combined_experiment_name][key], value)
+    p.dump(combined_audio_updated_states, open('./eval_data/combined_audio_updated_states.p', 'wb'))
+    
+#getImportantTokens()
+
+def selectTokens():
+    combined_audio_updated_states = p.load(open('./eval_data/combined_audio_updated_states.p', 'rb'))
+    zero_audio_tokens = {}
+    for combined_experiment_name, audio_updated_states in combined_audio_updated_states.items():
+        zero_audio_tokens[combined_experiment_name] = {}
+        print(combined_experiment_name)
+        for audio_file, value in audio_updated_states.items():
+            value = value.reshape(1, len(value))[0]
+            indices = np.where(value > 1)[0]
+            i = int(np.floor(len(indices)*0.1))
+            x = np.random.choice(indices, i)
+            zero_audio_tokens[combined_experiment_name][audio_file] = sorted(x)
+    p.dump(zero_audio_tokens, open('./eval_data/zero_audio_tokens.p', 'wb'))
+    
+#selectTokens()
+
+def combined_selectedTokens():
+    combined_audio_updated_states = p.load(open('./eval_data/combined_audio_updated_states.p', 'rb'))
+    percentages = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
+    zero_audio_tokens = {}
+    combined_zero_audio_tokens = {perc:{} for perc in percentages}
+    for audio_file, updated_states in combined_audio_updated_states[list(combined_audio_updated_states.keys())[0]].items():
+        for key in combined_audio_updated_states.keys():
+            if audio_file in zero_audio_tokens.keys():
+                zero_audio_tokens[audio_file] = np.add(zero_audio_tokens[audio_file], combined_audio_updated_states[key][audio_file])
+            else:
+                zero_audio_tokens[audio_file] = combined_audio_updated_states[key][audio_file]
+        #print(zero_audio_tokens[audio_file].reshape(1, len(zero_audio_tokens[audio_file]))[0])
+        indices = np.where(zero_audio_tokens[audio_file].reshape(1, len(zero_audio_tokens[audio_file]))[0] >= 14)[0]
+        for perc in percentages:
+            i = int(np.ceil(len(indices) * perc))
+            x = np.random.choice(indices, i)
+            combined_zero_audio_tokens[perc][audio_file] = x
+    #print(np.min(lengths), np.mean(lengths), np.max(lengths))
+    p.dump(combined_zero_audio_tokens, open('./eval_data/combined_zero_audio_tokens.p', 'wb'))
+
+#combined_selectedTokens()
+#a[zeroing] = 0
+
+#combined_zero_audio_tokens = p.load(open('F:\Documents\PycharmProjects\Masterthesis\skip-avsr\eval_data\combined_zero_audio_tokens.p', 'rb'))
+#audio_seq_len = p.load(open('./datasets/mvlrs_v1/audio_seq_len.p', 'rb'))
+#print(list(combined_zero_audio_tokens[0.1]['main/5535415699068794046/00002']))
+#print(audio_seq_len['main/5535415699068794046/00002'])
+#f = open('F:/Documents/datasets/mvlrs_v1/splits/train.scp', 'r')
+#for line in f.read().splitlines():
+#    #print(combined_zero_audio_tokens[0.1].keys())
+#    if not line in combined_zero_audio_tokens[0.1]:
+#        print('error', line)
+
+#encoder_attention_summary, encoder_attention_alignment, decoder_attention_summary, decder_attention_alignment, video_updated_states, audio_updated_states, decoder_updated_states
+def show_mean_attention_updated_states():
+    overall_mean = []
+    path = './configs/mvlrs_v1/evaluate/finished/'
+    for file in os.listdir(path):
+        if 'av_align' in file and 'clean' in file and 'vad' in file:
+            config = json.load(open(path+file, 'r'))
+            experiment_path = config['experiment_path']
+            experiment_name = config['experiment_name']
+            a = p.load(open('./eval_data/'+experiment_path+experiment_name+'/eval_data_T_24_e1111.p', 'rb'))
+            mean_attention_skipped_states = []
+            for key in a.keys():
+                eas = a[key]['encoder_attention_alignment']
+                vus = a[key]['video_updated_states']
+                aus = a[key]['audio_updated_states']
+                eas = eas[:vus.shape[0],:aus.shape[0]].reshape((vus.shape[0], aus.shape[0]))
+                va_us = np.add(np.tile(vus, aus.shape[0]), np.tile(aus, vus.shape[0]).T)
+                va_us = np.where(va_us==0, 1, 0)
+                ones = eas[np.where(va_us == 1)]
+                for x in ones:
+                    mean_attention_skipped_states.append(x)
+                #if config['cost_per_sample'] == [0.0001, 0.0005, 0.0001]:
+                    # plt.boxplot(mean_attention_skipped_states)
+                #    plt.imshow(eas)
+                #    plt.show()
+                #if len(ones) > 0:
+                #    mean_attention_skipped_states.append(np.mean(ones))
+            #print(len(mean_attention_skipped_states))
+            if np.mean(mean_attention_skipped_states) > 0:
+                print(np.mean(mean_attention_skipped_states))
+                overall_mean.append(np.mean(mean_attention_skipped_states))
+    print(np.mean(overall_mean))
+
+def compare_udpated_states():
+    path = './configs/evaluate/finished/'
+    dataset = 'mvlrs_v1'
+    noise = 'clean'
+    architecture = 'av_align'
+    skip_layer = 'a'
+    for cps in [['0E+00','0E+00','0E+00'],
+                ['0E+00', '1E-02', '0E+00'],
+                ['0E+00', '1E-03', '0E+00'],
+                ['0E+00', '1E-04', '0E+00'],
+                ['0E+00', '1E-05', '0E+00'],
+                ['0E+00', '5E-04', '0E+00']]:
+        similarity = []
+        identical_us = []
+        xs = {}
+        ys = {}
+        for exp in ['0','1','2']:
+            a_config_file = dataset+'_'+noise+'_'+architecture+'_'+skip_layer+'_'+'_'.join(cps)+'_131_exp'+exp+'.json'
+            a_config = json.load(open(path + a_config_file, 'r'))
+            a_experiment_path = a_config['experiment_path']
+            a_experiment_name = a_config['experiment_name']
+            a = p.load(open('./eval_data/' + a_experiment_path + a_experiment_name + '/eval_data_T_24_e1111.p', 'rb'))
+            d_config_file = dataset + '_' + noise + '_' + architecture + '_' + 'd' + '_' + '_'.join(
+                [cps[0],cps[2],cps[1]]) + '_131_exp' + exp + '.json'
+            d_config = json.load(open(path + d_config_file, 'r'))
+            d_experiment_path = d_config['experiment_path']
+            d_experiment_name = d_config['experiment_name']
+            d = p.load(open('./eval_data/' + d_experiment_path + d_experiment_name + '/eval_data_T_24_e1111.p', 'rb'))
+            for key in a.keys():
+                if 'audio_updated_states' in a[key].keys():
+                    x = [n[0] for n in a[key]['audio_updated_states']]
+                    y = [n[0] for n in d[key]['decoder_updated_states']]
+                    if not key in xs.keys():
+                        xs[key] = x
+                        ys[key] = y
+                    else:
+                        xs[key] = np.add(xs[key], x)
+                        ys[key] = np.add(ys[key], y)
+        for key in xs.keys():
+            cos_sim = np.dot(xs[key], ys[key])/(np.linalg.norm(xs[key])*np.linalg.norm(ys[key]))
+            similarity.append(cos_sim)
+            identical = 0
+            for i in range(len(x)):
+                if x[i] == y[i]:
+                    identical += 1
+                identical_us.append(identical / len(x))
+        print(cps, np.mean(similarity))
+        print(cps, np.mean(identical_us))
+    
+#compare_udpated_states()
+
+def identify_updates_states():
+    path = './configs/evaluate/finished/'
+    for file in os.listdir(path):
+        if 'exp2' in file:
+            print(file)
+            v_states = [0] * 100
+            a_states = [0] * 100
+            d_states = [0] * 100
+            total_v = [0] * 100
+            total_a = [0] * 100
+            total_d = [0] * 100
+            if 'av_align' in file and 'clean' in file:
+                config = json.load(open(path + file, 'r'))
+                experiment_path = config['experiment_path']
+                experiment_name = config['experiment_name']
+                a = p.load(open('./eval_data/' + experiment_path + experiment_name + '/eval_data_T_24_e1111.p', 'rb'))
+                for key in a.keys():
+                    if 'video_updated_states' in a[key].keys():
+                        vus = a[key]['video_updated_states']
+                        for i, u in enumerate(vus):
+                            x = int(np.round(i/len(vus)*100))
+                            v_states[x] += u[0]
+                            total_v[x] += 1
+                    elif 'audio_updated_states' in a[key].keys():
+                        aus = a[key]['audio_updated_states']
+                        for i, u in enumerate(aus):
+                            x = int(np.round(i/len(aus)*100))
+                            a_states[x] += u[0]
+                            total_a[x] += 1
+                    elif 'decoder_updated_states' in a[key].keys():
+                        dus = a[key]['decoder_updated_states']
+                        for i, u in enumerate(dus):
+                            x = int(np.ceil(i/len(dus)*100))
+                            d_states[x] += u[0]
+                            total_d[x] += 1
+            print('v', v_states)
+            print('a', a_states)
+            print('d', d_states)
+            print(len(a_states))
+            if sum(a_states) > 0:
+                plt.bar([x for x in range(0,100)], [a_states[i]/total_a[i] for i in range(0,100)])
+                plt.title(experiment_name)
+                plt.show()
+            
+def analyze_bimodal_decoder_attention():
+    '''
+    Possible influence visible in the decoder attention for audio and video.
+    What I saw was the usual attention image, similar to the machine translation task for text, but only
+    for the audio channel and not the video channel.
+    '''
+    audio_input_length = p.load(open('./datasets/mvlrs_v1/audio_seq_len.p', 'rb'))
+    video_input_length = p.load(open('./datasets/mvlrs_v1/video_seq_len.p', 'rb'))
+    label_length = p.load(open('./datasets/mvlrs_v1/label_length.p', 'rb'))
+    for config_file in os.listdir('./configs/analyze/bimodal_decoder/'):
+        config = json.load(open('./configs/analyze/bimodal_decoder/' + config_file, 'r'))
+        experiment_path = config['experiment_path']
+        experiment_name = config['experiment_name']
+        dataset, noise, arch, skip_layer, vcps, acps, dvcps, dacps, _, _, _ = experiment_path.split('/')
+        x = p.load(open('./eval_data/' + experiment_path + experiment_name + '/eval_data_T_24_e1112.p', 'rb'))
+        file = 'main/5681963419182164492/00029'
+        #file = list(x.keys())[np.random.randint(0,len(x.keys()))]
+        print(file)
+        daav = x[file]['decoder_attention_alignment_video'][:video_input_length[file], :label_length[file]['length']]
+        daav = np.subtract(np.ones_like(daav), daav)
+        for i in range(len(daav)):
+            daav[i] = daav[i] * 1/sum(daav[i])
+        print(sum(daav[0]))
+        daaa = x[file]['decoder_attention_alignment_audio'][:audio_input_length[file], :label_length[file]['length']]
+        daaa = np.subtract(np.ones_like(daaa), daaa)
+        for i in range(len(daaa)):
+            daaa[i] = daaa[i] * 1/sum(daaa[i])
+        print(sum(daaa[0]))
+        print(skip_layer)
+        s = 2
+        if 'd' in skip_layer:
+            s += 2
+            
+        fig, ax = plt.subplots(1,s)
+        text = [c for c in label_length[file]['text']]
+        text_arr = np.arange(len(text))
+        print(text)
+        if 'd' in skip_layer:
+            ax[0].imshow(x[file]['decoder_updated_states_video'][:video_input_length[file]])
+            ax[0].set_xticklabels([])
+            ax[0].tick_params(axis=u'x', which=u'both', length=0)
+            ax[0].set_ylabel('Video Token')
+            ax[1].imshow(daav, aspect="auto")
+            ax[1].set_xticks(text_arr)
+            ax[1].set_xticklabels(text)
+            ax[1].set_yticklabels([])
+            ax[1].tick_params(axis=u'y', which=u'both', length=0)
+            ax[2].imshow(x[file]['decoder_updated_states_audio'][:audio_input_length[file]])
+            ax[2].set_xticklabels([])
+            ax[2].tick_params(axis=u'x', which=u'both', length=0)
+            ax[2].set_ylabel('Audio Token')
+            ax[3].imshow(daaa, aspect="auto")
+            ax[3].set_xticks(text_arr)
+            ax[3].set_xticklabels(text)
+            ax[3].set_yticklabels([])
+            ax[3].tick_params(axis=u'y', which=u'both', length=0)
+        else:
+            ax[0].imshow(daav, aspect="auto")
+            ax[0].set_xticks(text_arr)
+            ax[0].set_xticklabels(text)
+            ax[0].set_ylabel('Video Token')
+            ax[1].imshow(daaa, aspect="auto")
+            ax[1].set_xticks(text_arr)
+            ax[1].set_xticklabels(text)
+            ax[1].set_ylabel('Audio Token')
+        title = ' '.join([dataset.upper(), noise.upper(), skip_layer.upper(), vcps, acps, dvcps, dacps])
+        fig.suptitle(title)
+        plt.show()
+
+
+def analyze_decoder_attention():
+    '''
+    Possible influence visible in the decoder attention for audio and video.
+    What I saw was the usual attention image, similar to the machine translation task for text, but only
+    for the audio channel and not the video channel.
+    '''
+    audio_input_length = p.load(open('./datasets/mvlrs_v1/audio_seq_len.p', 'rb'))
+    video_input_length = p.load(open('./datasets/mvlrs_v1/video_seq_len.p', 'rb'))
+    label_length = p.load(open('./datasets/mvlrs_v1/label_length.p', 'rb'))
+    files = None
+    file = None
+    text = "0" * 100
+    for config_file in os.listdir('./configs/analyze/decoder_attention/'):
+        print(config_file)
+        for o_file in range(100):
+            print(o_file)
+            c1 = config_file.replace('cafe_10db','clean')
+            c2 = c1
+            c3 = config_file
+            for i,j in [('vad','n'),('1E','0E'), ('5E','0E'),('-','+'),('4','0'),('03','00'),('5','0')]:
+                c2 = c2.replace(i, j)
+                c3 = c3.replace(i, j)
+            cfiles = [c2, c3, c1, config_file]
+            s = 0
+            fig, ax = plt.subplots(2, 4)
+            d = {'clean':None, 'cafe_10db':None}
+            for c_file in cfiles:
+                config = json.load(open('./configs/finished/' + c_file, 'r'))
+                experiment_path = config['experiment_path']
+                experiment_name = config['experiment_name']
+                dataset, noise, arch, skip_layer, vcps, acps, dcps, _, _, _ = experiment_path.split('/')
+                x = p.load(open('./eval_data/' + experiment_path + experiment_name + '/eval_data_T_24_e1112.p', 'rb'))
+                if not files:
+                    files = []
+                    while len(files) < 100:
+                        files.append(list(x.keys())[np.random.randint(0, len(x.keys()))])
+                        files = list(set(files))
+                #file = files[o_file]
+                #text = [c for c in label_length[file]['text']]
+                    #while len(text) > 20:
+                    #    file = list(x.keys())[np.random.randint(0, len(x.keys()))]
+                    #file = 'main/5681963419182164492/00029'
+                file = files[o_file]
+                text = [c for c in label_length[file]['text']]
+                text_arr = np.arange(len(text))
+                daa = x[file]['decoder_attention_alignment'][:video_input_length[file], :label_length[file]['length']]
+                eaa = x[file]['encoder_attention_alignment'][:video_input_length[file], :audio_input_length[file]]
+                eaa_max = str(np.round(np.max(eaa), 4))
+                if 'vad' == skip_layer:
+                    eaa = np.concatenate((eaa, x[file]['video_updated_states'][:, None]), axis=1)
+                    t = x[file]['audio_updated_states']
+                    t = [np.vstack((t, [0.5]))]
+                    eaa = np.vstack((eaa,t))
+                #print(eaa.shape)
+                #daa = np.subtract(np.ones_like(daa), daa)
+                #for i in range(len(daa)):
+                #    daa[i] = daa[i] * 1 / sum(daa[i])
+                #print('sum', sum(daa[:,0]))
+                #print('max daa', np.max(daa))
+                #print('max eaa', np.max(eaa))
+                im = ax[1][s].imshow(daa, aspect="auto", vmin=0, vmax=1)
+                ax[1][s].set_xticks(text_arr)
+                ax[1][s].set_xticklabels(text)
+                ax[1][s].set_ylabel('A/V Token')
+                im = ax[0][s].imshow(eaa, aspect="auto", vmin=0, vmax=1)
+                ax[0][s].set_xlabel('Audio Token'+'\n'+eaa_max)
+                ax[0][s].set_ylabel('Video Token')
+                if 'vad' == skip_layer:
+                    image_title = noise+' '+skip_layer+' '+vcps+' '+acps+' '+dcps
+                    ax[0][s].set_title(image_title.upper())
+                else:
+                    image_title = noise + ' ' + skip_layer
+                    ax[0][s].set_title(image_title.upper())
+                s += 1
+            title = ' '.join([dataset.upper(), arch, vcps, acps, dcps])
+            fig.suptitle(title)
+            fig.subplots_adjust(right=0.8)
+            cbar_ax = fig.add_axes([0.85, 0.15, 0.025, 0.7])
+            fig.colorbar(im, cax=cbar_ax)
+            #plt.show()
+            os.makedirs('./visualization/attention_alignment/'+title+'/', exist_ok=True)
+            fig.set_size_inches(18.5, 10.5)
+            plt.savefig('./visualization/attention_alignment/'+title+'/'+str(o_file)+'.png', dpi=320)
+            plt.close()
+
+def analyzePredictions():
+    predictions = p.load(open('./predictions/predictions.p','rb'))
+    file = None
+    for config_file in os.listdir('./configs/analyze/decoder_attention/'):
+        c1 = config_file.replace('cafe_10db','clean')
+        if not file:
+            c2 = c1
+            c3 = config_file
+            for i, j in [('vad', 'n'), ('1E', '0E'), ('5E', '0E'), ('-', '+'), ('4', '0'), ('03', '00'), ('5', '0')]:
+                c2 = c2.replace(i, j)
+                c3 = c3.replace(i, j)
+            cfiles = [c2, c3, c1, config_file]
+        else:
+            cfiles = [c1, config_file]
+        for c_file in cfiles:
+            config = json.load(open('./configs/finished/' + c_file, 'r'))
+            experiment_name = config['experiment_name']
+            experiment_predictions = predictions[experiment_name]
+            if not file:
+                file = list(experiment_predictions.keys())[np.random.randint(0, len(experiment_predictions.keys()))]
+                print(file)
+                file_prediction = experiment_predictions[file]
+                print(file_prediction['target'])
+            else:
+                file_prediction = experiment_predictions[file]
+            print('{:60s} {:1.4f}  {:10s}'.format(experiment_name, file_prediction['error'], file_prediction['pred']))
+        print()
+        
+def analyze_attention_values(location='encoder'):
+    audio_input_length = p.load(open('./datasets/mvlrs_v1/audio_seq_len.p', 'rb'))
+    video_input_length = p.load(open('./datasets/mvlrs_v1/video_seq_len.p', 'rb'))
+    label_length = p.load(open('./datasets/mvlrs_v1/label_length.p', 'rb'))
+    res = {}
+    files = None
+    for config_file in os.listdir('./configs/analyze/attention/'):
+        config = json.load(open('./configs/finished/' + config_file, 'r'))
+        experiment_path = config['experiment_path']
+        experiment_name = config['experiment_name']
+        print(experiment_name)
+        if config['architecture'] == 'av_align' and config['dataset'] == 'mvlrs_v1' and ('clean' in config['snr']):#' '.join([dataset.upper(), arch, skip_layer, vcps, acps, dcps])
+            dataset, noise, arch, skip_layer, vcps, acps, dcps, _, _, _ = experiment_path.split('/')
+            x = p.load(open('./eval_data/' + experiment_path + experiment_name + '/eval_data_T_24_e1112.p', 'rb'))
+            eaa_max_list = []
+            eaa_mean_max_list = []
+            count = 0
+            for file in x.keys():
+                if file != 'flops':
+                    if location == 'decoder':
+                        eaa = x[file]['decoder_attention_alignment'][:audio_input_length[file],
+                              :label_length[file]['length']]
+                    else:
+                        eaa = x[file]['encoder_attention_alignment'][:video_input_length[file], :audio_input_length[file]]
+                    if count < 25:
+                        fig = plt.figure()
+                        if not files:
+                            files = []
+                            while len(files) < 25:
+                                f = list(x.keys())[np.random.randint(0,len(x.keys()))]
+                                files.append(f)
+                                files = list(set(files))
+                        print(count)
+                        if not 'n' in skip_layer:
+                            title = ' '.join([dataset.upper(), arch, skip_layer, 'V'+vcps, 'A'+acps, 'D'+dcps])
+                        else:
+                            title = ' '.join([dataset.upper(), arch, skip_layer])
+                        if location == 'decoder':
+                            img = x[files[count]][location+'_attention_alignment'][:video_input_length[files[count]],
+                              :label_length[file]['length']]
+                        else:
+                            img = x[files[count]][location+'_attention_alignment'][:video_input_length[files[count]], :audio_input_length[files[count]]]
+                        im = plt.imshow(img, vmin=0.0, vmax=1.0)
+                        plt.title(title.upper())
+                        if location == 'encoder':
+                            plt.ylabel('video frame')
+                            plt.xlabel('audio frame')
+                        if location == 'decoder':
+                            plt.ylabel('audio frame')
+                            plt.xlabel('character')
+                        cbar_ax = fig.add_axes([0.9, 0.15, 0.025, 0.7])
+                        fig.colorbar(im, cax=cbar_ax)
+                        os.makedirs('./visualization/'+location+'_attention_alignment_all/' + title + '/', exist_ok=True)
+                        plt.savefig('./visualization/'+location+'_attention_alignment_all/' + title + '/' + str(count) + '.png',
+                                    dpi=320)
+                        plt.close(fig)
+                        count += 1
+                    eaa_max = np.max(eaa)
+                    eaa_mean_max = np.mean([np.max(eaa[:, 0]) for i in range(len(eaa))])
+                    eaa_max_list.append(eaa_max)
+                    eaa_mean_max_list.append(eaa_mean_max)
+            res[config_file.split('.')[0]] = {'max':np.mean(eaa_max_list), 'mean_max':np.mean(eaa_mean_max_list), 'cps':vcps+' '+acps+' '+dcps, 'snr':config['snr'], 'sl':skip_layer}
+    print(','.join(['CPS','SL','SNR','Max','Mean Max']))
+    for key,value in sorted(res.items()):
+        print(','.join([str(value['cps']), str(value['sl']), str(value['snr']), str(value['max']), str(value['mean_max'])]))
+
+def getRandomFiles(numberFiles):
+    config = json.load(open('./configs/analyze/attention/mvlrs_v1_clean_av_align_n_0E+00_0E+00_0E+00_131_exp2.json', 'r'))
+    experiment_path = config['experiment_path']
+    experiment_name = config['experiment_name']
+    x = p.load(open('./eval_data/' + experiment_path + experiment_name + '/eval_data_T_24_e1112.p', 'rb'))
+    files = list(x.keys())
+    files.remove('flops')
+    random_files = [files[i] for i in np.random.randint(len(files), size=numberFiles)]
+    return random_files
+
+def store_attention_alignment_av_align():
+    random_files = getRandomFiles(5)
+    audio_input_length = p.load(open('./datasets/mvlrs_v1/audio_seq_len.p', 'rb'))
+    video_input_length = p.load(open('./datasets/mvlrs_v1/video_seq_len.p', 'rb'))
+    label_length = p.load(open('./datasets/mvlrs_v1/label_length.p', 'rb'))
+    rows, columns = 6, 6
+    eaas = {}
+    daas = {}
+    for random_file in random_files:
+        eaas[random_file] = []
+        daas[random_file] = []
+        for config_file in os.listdir('./configs/analyze/attention/'):
+            config = json.load(open('./configs/finished/' + config_file, 'r'))
+            experiment_path = config['experiment_path']
+            experiment_name = config['experiment_name']
+            print(experiment_name)
+            if config['architecture'] == 'av_align' and config['dataset'] == 'mvlrs_v1' and (
+                    'clean' in config['snr'] ):#or 'cafe_10db' in config['snr']
+                dataset, noise, arch, skip_layer, vcps, acps, dcps, _, _, _ = experiment_path.split('/')
+                x = p.load(open('./eval_data/' + experiment_path + experiment_name + '/eval_data_T_24_e1112.p', 'rb'))
+                #print(x[random_file]['decoder_attention_alignment'].shape)
+                #print(video_input_length[random_file])
+                #print(audio_input_length[random_file])
+                #print(label_length[random_file]['length'])
+                eaa = x[random_file]['encoder_attention_alignment'][:video_input_length[random_file],:audio_input_length[random_file]]
+                daa = x[random_file]['decoder_attention_alignment'][:audio_input_length[random_file],:label_length[random_file]['length']]
+                eaas[random_file].append([eaa, experiment_path])
+                daas[random_file].append([daa, experiment_path])
+    for random_file, values in eaas.items():
+        fig = plt.figure(figsize=(16, 16))
+        for i, value in enumerate(values):
+            v, exp = value
+            fig.add_subplot(rows, columns, i+1)
+            fig.subplots_adjust(hspace=0.9)
+            plt.imshow(v, vmin=0.0, vmax=1.0, cmap='binary')
+            dataset, noise, arch, skip_layer, vcps, acps, dcps, _, _, _ = exp.split('/')
+            plt.title(skip_layer+' '+vcps+' '+acps+' '+dcps)
+        #plt.show()
+        plt.savefig('./visualization/attentionAlignment/encoder/' + random_file.replace('/','-') + '.png',
+                    dpi=320)
+        plt.close(fig)
+    for random_file, values in daas.items():
+        fig = plt.figure(figsize=(16, 16))
+        for i, value in enumerate(values):
+            v, exp = value
+            fig.add_subplot(rows, columns, i+1)
+            fig.subplots_adjust(hspace=0.9)
+            plt.imshow(v, vmin=0.0, vmax=1.0, cmap='binary')
+            dataset, noise, arch, skip_layer, vcps, acps, dcps, _, _, _ = exp.split('/')
+            plt.title(skip_layer+' '+vcps+' '+acps+' '+dcps)
+        #plt.show()
+        plt.savefig('./visualization/attentionAlignment/decoder/' + random_file.replace('/','-') + '.png',
+                    dpi=320)
+        plt.close(fig)
+        
+def store_attention_alignment_bimodal():
+    random_files = getRandomFiles(5)
+    audio_input_length = p.load(open('./datasets/mvlrs_v1/audio_seq_len.p', 'rb'))
+    video_input_length = p.load(open('./datasets/mvlrs_v1/video_seq_len.p', 'rb'))
+    label_length = p.load(open('./datasets/mvlrs_v1/label_length.p', 'rb'))
+    rows, columns = 7, 7
+    eaas = {}
+    daas = {}
+    for random_file in random_files:
+        eaas[random_file] = []
+        daas[random_file] = []
+        for config_file in os.listdir('./configs/analyze/bimodal_decoder/'):
+            config = json.load(open('./configs/finished/' + config_file, 'r'))
+            experiment_path = config['experiment_path']
+            experiment_name = config['experiment_name']
+            print(experiment_name)
+            if config['architecture'] == 'bimodal' and config['dataset'] == 'mvlrs_v1' and (
+                    'clean' in config['snr']):#or 'cafe_10db' in config['snr']
+                dataset, noise, arch, skip_layer, vcps, acps, vdcps, adcps, _, _, _ = experiment_path.split('/')
+                x = p.load(open('./eval_data/' + experiment_path + experiment_name + '/eval_data_T_24_e1112.p', 'rb'))
+                #print(x[random_file]['decoder_attention_alignment'].shape)
+                #print(video_input_length[random_file])
+                #print(audio_input_length[random_file])
+                #print(label_length[random_file]['length'])
+                eaa = x[random_file]['decoder_attention_alignment_video'][:video_input_length[random_file],:label_length[random_file]['length']]
+                daa = x[random_file]['decoder_attention_alignment_audio'][:audio_input_length[random_file],:label_length[random_file]['length']]
+                eaas[random_file].append([eaa, experiment_path])
+                daas[random_file].append([daa, experiment_path])
+    for random_file, values in eaas.items():
+        fig = plt.figure(figsize=(16, 16))
+        for i, value in enumerate(values):
+            v, exp = value
+            fig.add_subplot(rows, columns, i+1)
+            fig.subplots_adjust(hspace=0.9)
+            plt.imshow(v, vmin=0.0, vmax=1.0, cmap='gray')
+            dataset, noise, arch, skip_layer, vcps, acps, vdcps, adcps, _, _, _ = exp.split('/')
+            plt.title(skip_layer+' '+vcps+' '+acps+'\n'+vdcps+' '+adcps)
+        #plt.show()
+        plt.savefig('./visualization/attentionAlignmentBimodal/decoderVideo/' + random_file.replace('/','-') + '.png',
+                    dpi=320)
+        plt.close(fig)
+    for random_file, values in daas.items():
+        fig = plt.figure(figsize=(16, 16))
+        for i, value in enumerate(values):
+            v, exp = value
+            fig.add_subplot(rows, columns, i+1)
+            fig.subplots_adjust(hspace=0.9)
+            plt.imshow(v, vmin=0.0, vmax=1.0, cmap='gray')
+            dataset, noise, arch, skip_layer, vcps, acps, vdcps, adcps, _, _, _ = exp.split('/')
+            plt.title(skip_layer+' '+vcps+' '+acps+'\n'+vdcps+' '+adcps)
+        #plt.show()
+        plt.savefig('./visualization/attentionAlignmentBimodal/decoderAudio/' + random_file.replace('/','-') + '.png',
+                    dpi=320)
+        plt.close(fig)
+        
+store_attention_alignment_bimodal()
